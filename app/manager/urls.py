@@ -4,7 +4,7 @@ from app.administration.views import (
     GroupViewSet, PaymentViewSet, 
     GroupDashboardView, StudentTableViewSet,
     IncomeViewSet, ExpenseViewSet, TeacherPaymentViewSet, 
-    InvoiceViewSet, PaymentReminderViewSet, FinancialReportViewSet, 
+    InvoiceViewSet, FinancialReportViewSet, 
     ClassroomViewSet, ScheduleViewSet, DailyScheduleView,
     ActiveStudentsAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
     StudentProfileView, StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView
@@ -17,7 +17,7 @@ router.register(r'student-table', StudentTableViewSet, basename='student-table')
 
 router.register(r'invoices', InvoiceViewSet, basename='invoice')
 router.register(r'payments', PaymentViewSet, basename='payment')
-router.register(r'payment-reminders', PaymentReminderViewSet, basename='payment-reminder')
+# router.register(r'payment-reminders', PaymentReminderViewSet, basename='payment-reminder')
 router.register(r'financial-reports', FinancialReportViewSet, basename='financial-report')
 router.register(r'incomes', IncomeViewSet, basename='income')
 router.register(r'expenses', ExpenseViewSet, basename='expense')

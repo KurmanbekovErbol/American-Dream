@@ -2,15 +2,15 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from app.administration.views import (
     GroupViewSet, TeacherViewSet, StudentViewSet, 
-    LessonViewSet, AttendanceViewSet, HomeworkViewSet, PaymentViewSet, 
+    LessonViewSet, AttendanceViewSet, PaymentViewSet, 
     GroupDashboardView, MonthsViewSet, GroupTableViewSet, StudentTableViewSet,
     TeacherTableViewSet, IncomeViewSet, ExpenseViewSet, TeacherPaymentViewSet, 
-    InvoiceViewSet, PaymentReminderViewSet, FinancialReportViewSet, GenerateFinancialReport, 
-    SendPaymentReminders, CalculateTeacherPayments, ClassroomViewSet, ScheduleViewSet, DailyScheduleView,
+    InvoiceViewSet, FinancialReportViewSet, GenerateFinancialReport, 
+    CalculateTeacherPayments, ClassroomViewSet, ScheduleViewSet, DailyScheduleView,
     ActiveStudentsAnalytics, MonthlyIncomeAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
     StudentProfileView, StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView, 
     HomeworkListView, LessonDetailView, HomeworkSubmissionView, MyHomeworkSubmissionsView, TeacherHomeworkListView,
-    HomeworkReviewView
+    HomeworkReviewView, StudentGradesView, PaymentNotificationViewSet
     )
 
 router = DefaultRouter()
@@ -20,7 +20,6 @@ router.register(r'students-add', StudentViewSet, basename='student_add')
 
 router.register(r'lessons-add', LessonViewSet, basename='lesson-add')
 router.register(r'attendances', AttendanceViewSet, basename='attendance')
-router.register(r'homeworks', HomeworkViewSet, basename='homework')
 
 router.register(r'months', MonthsViewSet, basename='month')
 router.register(r'group-table', GroupTableViewSet, basename='group_table')
@@ -28,8 +27,9 @@ router.register(r'student-table', StudentTableViewSet, basename='student-table')
 router.register(r'teacher-table', TeacherTableViewSet, basename='teacher-table')
 
 router.register(r'invoices', InvoiceViewSet, basename='invoice')
+router.register(r'notifications', PaymentNotificationViewSet, basename='notifications')
 router.register(r'payments', PaymentViewSet, basename='payment')
-router.register(r'payment-reminders', PaymentReminderViewSet, basename='payment-reminder')
+# router.register(r'payment-reminders', PaymentReminderViewSet, basename='payment-reminder')
 router.register(r'financial-reports', FinancialReportViewSet, basename='financial-report')
 router.register(r'incomes', IncomeViewSet, basename='income')
 router.register(r'expenses', ExpenseViewSet, basename='expense')
@@ -43,7 +43,7 @@ urlpatterns = [
     path('', include(router.urls)),
     path('groups/<int:id>/dashboard/', GroupDashboardView.as_view(), name='group-dashboard'),
     path('generate-report/', GenerateFinancialReport.as_view(), name='generate-report'),
-    path('send-reminders/', SendPaymentReminders.as_view(), name='send-reminders'),
+    # path('send-reminders/', SendPaymentReminders.as_view(), name='send-reminders'),
     path('calculate-teacher-payments/', CalculateTeacherPayments.as_view(), name='calculate-teacher-payments'),
     path('daily-schedule/', DailyScheduleView.as_view(), name='daily-schedule'),
     path('active-students/', ActiveStudentsAnalytics.as_view(), name='active-students'),
@@ -60,4 +60,5 @@ urlpatterns = [
     path('my-submissions/', MyHomeworkSubmissionsView.as_view(), name='my-homework-submissions'),
     path('teacher/homework/', TeacherHomeworkListView.as_view(), name='teacher-homework-list'),
     path('teacher/homework/<int:pk>/review/', HomeworkReviewView.as_view(), name='homework-review'),
+    path('groups/<int:group_id>/grades/', StudentGradesView.as_view(), name='student-grades'),
 ]

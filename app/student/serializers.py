@@ -1,6 +1,6 @@
 from rest_framework import serializers
-from app.administration.models import Attendance
-from app.administration.models import Homework
+from app.administration.models import Attendance, HomeworkSubmission
+
 from app.users.models import CustomUser
 
 class StudentAttendanceSerializer(serializers.ModelSerializer):
@@ -20,7 +20,7 @@ class StudentHomeworkSerializer(serializers.ModelSerializer):
     course_number = serializers.IntegerField(source='lesson.month.course.course_number')
 
     class Meta:
-        model = Homework
+        model = HomeworkSubmission
         fields = ['id', 'score', 'lesson_title', 'lesson_date', 'month_number', 'course_number']
 
 class StudentProgressSerializer(serializers.ModelSerializer):
@@ -43,7 +43,7 @@ class StudentProgressSerializer(serializers.ModelSerializer):
     def get_homeworks(self, obj):
         student = self.context.get('student', obj)
         return StudentHomeworkSerializer(
-            Homework.objects.filter(student=student).select_related(
+            HomeworkSubmission.objects.filter(student=student).select_related(
                 'lesson', 'lesson__month', 'lesson__month__course'
             ).order_by('lesson__date'),
             many=True

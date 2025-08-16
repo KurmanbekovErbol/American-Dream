@@ -2,11 +2,11 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from app.administration.views import (
     GroupViewSet, TeacherViewSet, StudentViewSet, 
-    LessonViewSet, AttendanceViewSet, HomeworkViewSet, PaymentViewSet, 
+    LessonViewSet, AttendanceViewSet, PaymentViewSet, 
     GroupDashboardView, MonthsViewSet, GroupTableViewSet, StudentTableViewSet,
     TeacherTableViewSet, IncomeViewSet, ExpenseViewSet, TeacherPaymentViewSet, 
-    InvoiceViewSet, PaymentReminderViewSet, FinancialReportViewSet, GenerateFinancialReport, 
-    SendPaymentReminders, CalculateTeacherPayments, ClassroomViewSet, ScheduleViewSet, DailyScheduleView,
+    InvoiceViewSet, FinancialReportViewSet, GenerateFinancialReport, 
+    CalculateTeacherPayments, ClassroomViewSet, ScheduleViewSet, DailyScheduleView,
     ActiveStudentsAnalytics, MonthlyIncomeAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
     StudentProfileView, StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView,
     MyHomeworkSubmissionsView, TeacherHomeworkListView, HomeworkReviewView
@@ -17,7 +17,6 @@ router = DefaultRouter()
 
 router.register(r'lessons', LessonViewSet, basename='lesson')
 router.register(r'attendances', AttendanceViewSet, basename='attendance')
-router.register(r'homeworks', HomeworkViewSet, basename='homework')
 router.register(r'student-table', StudentTableViewSet, basename='student-table')
 router.register(r'schedule', ScheduleViewSet, basename='schedule')
 

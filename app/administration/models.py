@@ -177,9 +177,6 @@ class Student(models.Model):
     
 
 
-# ==============================================================================
-
-
 
 # models.py
 class Course(models.Model):
@@ -263,8 +260,8 @@ class HomeworkSubmission(models.Model):
         on_delete=models.CASCADE,
         related_name='homework_submissions'
     )
-    project_links = models.JSONField(default=list)  # Список ссылок
-    files = models.JSONField(default=list)  # Список путей к файлам
+    project_links = models.URLField(default=list)  # Список ссылок
+    files = models.URLField(default=list)  # Список путей к файлам
     submitted_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(
         max_length=20,
@@ -278,6 +275,8 @@ class HomeworkSubmission(models.Model):
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
     
     class Meta:
+        verbose_name = "Домашнее задание"
+        verbose_name_plural = "Домашние задания"
         unique_together = ('lesson', 'student')
         ordering = ['-submitted_at']
     
@@ -296,14 +295,8 @@ class Attendance(models.Model):
     status = models.CharField(max_length=10, choices=STATUS_CHOICES)
 
     class Meta:
-        unique_together = ('lesson', 'student')
-
-class Homework(models.Model):
-    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='homeworks')
-    student = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='homeworks')
-    score = models.PositiveIntegerField(default=0)
-
-    class Meta:
+        verbose_name = "Посещаемость"
+        verbose_name_plural = "Посещаемости"
         unique_together = ('lesson', 'student')
 
     
@@ -367,6 +360,7 @@ class Expense(models.Model):
     
     def __str__(self):
         return f"{self.get_category_display()} - {self.amount} сом ({self.date})"
+
 
 class TeacherPayment(models.Model):
     """Модель для выплат преподавателям"""
@@ -490,19 +484,19 @@ class Payment(models.Model):
         super().save(*args, **kwargs)
         self.invoice.update_status()
 
-class PaymentReminder(models.Model):
-    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE,
-                              related_name='reminders',
-                              verbose_name="Счёт")
-    reminder_date = models.DateField(verbose_name="Дата напоминания")
-    days_before = models.PositiveIntegerField(verbose_name="Дней до оплаты")
-    sent = models.BooleanField(default=False, verbose_name="Отправлено")
-    message = models.TextField(verbose_name="Текст напоминания")
+# class PaymentReminder(models.Model):
+#     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE,
+#                               related_name='reminders',
+#                               verbose_name="Счёт")
+#     reminder_date = models.DateField(verbose_name="Дата напоминания")
+#     days_before = models.PositiveIntegerField(verbose_name="Дней до оплаты")
+#     sent = models.BooleanField(default=False, verbose_name="Отправлено")
+#     message = models.TextField(verbose_name="Текст напоминания")
 
-    class Meta:
-        verbose_name = "Напоминание об оплате"
-        verbose_name_plural = "Напоминания об оплате"
-        ordering = ['reminder_date']
+#     class Meta:
+#         verbose_name = "Напоминание об оплате"
+#         verbose_name_plural = "Напоминания об оплате"
+#         ordering = ['reminder_date']
 
 class FinancialReport(models.Model):
     REPORT_TYPES = [
@@ -594,6 +588,24 @@ class Lead(models.Model):
         return f"{self.name} - {self.course} ({self.get_status_display()})"
     
 
+
+
+class PaymentNotification(models.Model):
+    recipient_name = models.CharField(max_length=255, verbose_name="Имя получателя")
+    due_date = models.DateField(verbose_name="Срок оплаты")
+    message_text = models.TextField(verbose_name="Текст обращения")
+    amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Сумма к оплате")
+    extra_message = models.TextField(blank=True, null=True, verbose_name="Дополнительное обращение")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+    class Meta:
+        verbose_name = "Уведомление о платежах"
+        verbose_name_plural = "Уведомления о платежах"
+
+    def __str__(self):
+        return f"Уведомление для {self.recipient_name} до {self.due_date}"
 
 
 
