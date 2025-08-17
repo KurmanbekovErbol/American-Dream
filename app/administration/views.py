@@ -32,7 +32,7 @@ from app.users.permissions import (
 
 
 class GroupViewSet(viewsets.ModelViewSet):
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     queryset = Group.objects.all().select_related('direction')
     
 
@@ -157,7 +157,7 @@ class GroupViewSet(viewsets.ModelViewSet):
 
 class TeacherViewSet(viewsets.ModelViewSet):
     queryset = Teacher.objects.all().select_related('user').prefetch_related('directions', 'groups')
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -200,7 +200,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
     
 # views.py
 class StudentViewSet(viewsets.ModelViewSet):
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     queryset = Student.objects.all().select_related('user').prefetch_related('groups', 'directions')
 
     def get_serializer_class(self):
@@ -248,23 +248,23 @@ class StudentViewSet(viewsets.ModelViewSet):
 class LessonViewSet(viewsets.ModelViewSet):
     queryset = Lesson.objects.all()
     serializer_class = LessonSerializer
-    # permission_classes = [IsAdminOrTeacherFullAccessOthersReadOnly]
+    permission_classes = [IsAdminOrTeacherFullAccessOthersReadOnly]
 
 class AttendanceViewSet(viewsets.ModelViewSet):
     queryset = Attendance.objects.all()
     serializer_class = AttendanceSerializer
-    # pagination_class = [IsTeacher]
+    pagination_class = [IsTeacher]
 
 
 
 class MonthsViewSet(viewsets.ModelViewSet):
     queryset = Months.objects.all()
     serializer_class = MonthsSerializer
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
 
 # views.py
 class GroupDashboardView(generics.RetrieveAPIView):
-    # permission_classes = [IsInAllowedRoles]
+    permission_classes = [IsInAllowedRoles]
     queryset = Group.objects.all().select_related(
         'direction', 'teacher'
     ).prefetch_related(
@@ -323,7 +323,7 @@ class GroupTableViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Group.objects.all().select_related('direction')
     serializer_class = GroupTableSerializer
     filterset_fields = ['direction__name', 'group_name']
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -361,7 +361,7 @@ class GroupTableViewSet(viewsets.ReadOnlyModelViewSet):
 
 # views.py
 class StudentTableViewSet(viewsets.ReadOnlyModelViewSet):
-    # permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
+    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
     serializer_class = StudentTableSerializer
 
     def get_queryset(self):
@@ -433,7 +433,7 @@ class StudentTableViewSet(viewsets.ReadOnlyModelViewSet):
 
 # views.py
 class TeacherTableViewSet(viewsets.ReadOnlyModelViewSet):
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     serializer_class = TeacherTableSerializer
     
     def get_queryset(self):
@@ -488,7 +488,7 @@ class TeacherTableViewSet(viewsets.ReadOnlyModelViewSet):
 # Добавляем к существующим представлениям
 
 class InvoiceViewSet(viewsets.ModelViewSet):
-    # permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManager]
     queryset = Invoice.objects.all().select_related('student', 'course')
     serializer_class = InvoiceSerializer
     filterset_fields = ['student', 'course', 'status', 'due_date']
@@ -527,7 +527,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         return queryset.order_by('-date_created')
 
 class PaymentViewSet(viewsets.ModelViewSet):
-    # permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManager]
     queryset = Payment.objects.all().select_related('invoice')
     serializer_class = PaymentSerializer
     filterset_fields = ['payment_type', 'date', 'invoice']
@@ -574,25 +574,25 @@ class IncomeViewSet(viewsets.ModelViewSet):
     queryset = Income.objects.all().select_related('direction', 'student', 'group')
     serializer_class = IncomeSerializer
     filterset_fields = ['direction', 'payment_method', 'date', 'is_full_payment']
-    # permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManager]
 
 class ExpenseViewSet(viewsets.ModelViewSet):
     queryset = Expense.objects.all().select_related('teacher')
     serializer_class = ExpenseSerializer
     filterset_fields = ['category', 'date']
-    # permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManager]
 
 class TeacherPaymentViewSet(viewsets.ModelViewSet):
     queryset = TeacherPayment.objects.all().select_related('teacher')
     serializer_class = TeacherPaymentSerializer
     filterset_fields = ['teacher', 'date', 'is_paid']
-    # permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManager]
 
 class FinancialReportViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = FinancialReport.objects.all()
     serializer_class = FinancialReportSerializer
     filterset_fields = ['report_type', 'start_date', 'end_date']
-    # permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManager]
 
 # views.py
 class GenerateFinancialReport(APIView):
@@ -668,7 +668,7 @@ class GenerateFinancialReport(APIView):
 #         )
 
 class CalculateTeacherPayments(APIView):
-    # permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManager]
     def post(self, request, format=None):
         from datetime import datetime
         import calendar
@@ -752,7 +752,7 @@ class CalculateTeacherPayments(APIView):
 class ClassroomViewSet(viewsets.ModelViewSet):
     queryset = Classroom.objects.all()
     serializer_class = ClassroomSerializer
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
 
 class ScheduleViewSet(viewsets.ModelViewSet):
     # permission_classes = [IsAdmin]
@@ -798,7 +798,7 @@ class DailyScheduleView(APIView):
 
 
 class ActiveStudentsAnalytics(APIView):
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     def get(self, request):
         today = timezone.now().date()
         week_ago = today - timedelta(days=7)
@@ -859,7 +859,7 @@ class ActiveStudentsAnalytics(APIView):
     
 
 class MonthlyIncomeAnalytics(APIView):
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     def get(self, request):
         # Получаем год из параметра запроса (по умолчанию текущий год)
         year = request.query_params.get('year', timezone.now().year)
@@ -897,7 +897,7 @@ class MonthlyIncomeAnalytics(APIView):
         return Response(result)
 
 class TeacherWorkloadAnalytics(APIView):
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     def get(self, request):
         try:
             period = request.query_params.get('period', 'week')
@@ -958,7 +958,7 @@ class TeacherWorkloadAnalytics(APIView):
             )
 
 class PopularCoursesAnalytics(APIView):
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     def get(self, request):
         try:
             # Получаем направления с подсчетом студентов и групп
@@ -998,14 +998,13 @@ class StudentProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = StudentProfileSerializer
     queryset = CustomUser.objects.filter(role='Student')
     lookup_url_kwarg = 'student_id'
-    # permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
+    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
     
     # Разрешаем доступ без аутентификации
     authentication_classes = []
-    # permission_classes = [IsAdminOrManagerOrReadOnlyForTeacher]
 
 class StudentAttendanceView(APIView):
-    # permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
+    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
     def get(self, request, student_id):
         try:
             # Получаем все посещения студента с предзагрузкой связанных данных
@@ -1063,7 +1062,7 @@ class StudentAttendanceView(APIView):
             )
 
 class StudentPaymentsView(APIView):
-    # permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManager]
     def get(self, request, student_id):
         payments = Payment.objects.filter(
             invoice__student_id=student_id
@@ -1084,7 +1083,7 @@ class StudentPaymentsView(APIView):
 class LeadViewSet(viewsets.ModelViewSet):
     queryset = Lead.objects.all()
     serializer_class = LeadSerializer
-    # permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManager]
     filterset_fields = ['status', 'source']
     
     def get_queryset(self):
@@ -1135,7 +1134,7 @@ class LeadViewSet(viewsets.ModelViewSet):
 
 
 class AdminDashboardView(APIView):
-    # permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManager]
     
     def get(self, request):
         now = timezone.now()
@@ -1414,4 +1413,4 @@ class StudentGradesView(APIView):
 class PaymentNotificationViewSet(viewsets.ModelViewSet):
     queryset = PaymentNotification.objects.all()
     serializer_class = PaymentNotificationSerializer
-    # permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
+    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
