@@ -596,7 +596,7 @@ class FinancialReportViewSet(viewsets.ReadOnlyModelViewSet):
 
 # views.py
 class GenerateFinancialReport(APIView):
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     def post(self, request, format=None):
         try:
             report_type = request.data.get('report_type', 'monthly')
@@ -755,7 +755,7 @@ class ClassroomViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdmin]
 
 class ScheduleViewSet(viewsets.ModelViewSet):
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     queryset = Schedule.objects.all().select_related(
         'classroom', 'group', 'group__direction', 'teacher'
     )
@@ -777,7 +777,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
     
 
 class DailyScheduleView(APIView):
-    # permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin]
     def get(self, request, format=None):
         date_str = request.query_params.get('date')
         
