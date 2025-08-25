@@ -253,7 +253,7 @@ class LessonViewSet(viewsets.ModelViewSet):
 class AttendanceViewSet(viewsets.ModelViewSet):
     queryset = Attendance.objects.all()
     serializer_class = AttendanceSerializer
-    pagination_class = [IsTeacher]
+    permission_classes = [IsTeacher]
 
 
 

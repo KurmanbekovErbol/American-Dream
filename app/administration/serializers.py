@@ -45,12 +45,15 @@ class HomeworkSubmissionSerializer(serializers.ModelSerializer):
             'group_name', 'project_links', 'files', 'submitted_at',
             'status', 'score', 'teacher_comment'
         ]
+        ref_name = "AdministrationHomeworkSubmissionSerializer"
     
     def get_student_name(self, obj):
         return obj.student.get_full_name()
     
     def get_group_name(self, obj):
         return obj.lesson.month.course.group.group_name
+    
+
 class LessonDetailSerializer(serializers.ModelSerializer):
     homework_submissions = HomeworkSubmissionSerializer(many=True, read_only=True)
     
@@ -1052,6 +1055,7 @@ class HomeworkSubmissionSerializer(serializers.ModelSerializer):
             'teacher_comment',
             'feedback'
         ]
+        ref_name = "TeacherHomeworkSubmissionSerializer"
 
     def get_course_number(self, obj):
         return obj.lesson.month.course.course_number if hasattr(obj.lesson, 'month') else None
