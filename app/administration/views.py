@@ -8,6 +8,7 @@ from datetime import timedelta
 from django.utils import timezone
 from django.db.models.functions import Concat
 from rest_framework.decorators import action
+from django.http import HttpResponse
 from django.conf import settings
 from django_filters.rest_framework import DjangoFilterBackend
 import datetime
@@ -29,6 +30,7 @@ from app.users.permissions import (
     IsAdminOrManager, IsAdmin, IsTeacher, IsStudent, IsAdminOrTeacher, IsAdminOrReadOnlyForOthers, IsAdminOrReadOnlyForManagersAndTeachers, 
     IsAdminOrTeacherFullAccessOthersReadOnly, IsInAllowedRoles, IsTeacherFullAccessStudentReadOnly
     )
+from app.utils import render_to_pdf
 
 
 class GroupViewSet(viewsets.ModelViewSet):
@@ -895,6 +897,57 @@ class MonthlyIncomeAnalytics(APIView):
 
                 
         return Response(result)
+    
+
+class MonthlyIncomePDFView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        # Берем год
+        year = request.query_params.get('year', timezone.now().year)
+        try:
+            year = int(year)
+        except ValueError:
+            year = timezone.now().year
+
+        months_ru = [
+            'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+        ]
+
+        # Доходы по месяцам
+        payments = Payment.objects.filter(date__year=year).values("date__month").annotate(
+            total=Sum("amount")
+        )
+
+        month_data = {p['date__month']: p['total'] for p in payments}
+
+        result = []
+        total_year = 0
+        for month_num in range(1, 13):
+            income = month_data.get(month_num, 0) or 0
+            total_year += income
+            result.append({
+                "year": year,
+                "month": months_ru[month_num - 1],
+                "month_number": month_num,
+                "income": income,
+            })
+
+        context = {
+            "year": year,
+            "months": result,
+            "total_year": total_year,
+        }
+
+        # Генерация PDF через BytesIO
+        pdf_file = render_to_pdf("reports/monthly_income.html", context)
+
+        response = HttpResponse(pdf_file.read(), content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="monthly_income_{year}.pdf"'
+        pdf_file.close()
+        return response
+
 
 class TeacherWorkloadAnalytics(APIView):
     permission_classes = [IsAdmin]
@@ -938,7 +991,7 @@ class TeacherWorkloadAnalytics(APIView):
                     date__range=[start_date, end_date]
                 ).aggregate(total=Sum('amount'))['total'] or 0
 
-                if lessons_count > 0:  # Добавляем только преподавателей с занятиями
+                if lessons_count:  # Добавляем только преподавателей с занятиями
                     result.append({
                         'teacher': teacher.get_full_name(),
                         'lessons_count': lessons_count,
@@ -956,6 +1009,73 @@ class TeacherWorkloadAnalytics(APIView):
                 {'error': str(e)},
                 status=500
             )
+
+
+
+class TeacherWorkloadPDFView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        period = request.query_params.get('period', 'week')
+        
+        if period == 'week':
+            start_date = timezone.now().date() - timedelta(days=7)
+            end_date = timezone.now().date()
+        else:  # month
+            start_date = timezone.now().date().replace(day=1)
+            end_date = timezone.now().date()
+
+        teachers = CustomUser.objects.filter(role='Teacher', is_active=True)
+        result = []
+
+        for teacher in teachers:
+            # 1. Количество занятий
+            lessons_count = Schedule.objects.filter(
+                teacher=teacher,
+                date__range=[start_date, end_date]
+            ).count()
+
+            # 2. Группы преподавателя
+            teacher_groups = Group.objects.filter(teacher=teacher)
+
+            # 3. Количество учеников
+            students_count = CustomUser.objects.filter(
+                student_groups__in=teacher_groups
+            ).distinct().count()
+
+            # 4. Доход по группам
+            group_income = Payment.objects.filter(
+                invoice__course__group__in=teacher_groups,
+                date__range=[start_date, end_date]
+            ).aggregate(total=Sum('amount'))['total'] or 0
+
+            if lessons_count:
+                result.append({
+                    'teacher': teacher.get_full_name(),
+                    'lessons_count': lessons_count,
+                    'students_count': students_count,
+                    'group_income': float(group_income)
+                })
+
+        # Сортировка по количеству занятий
+        result.sort(key=lambda x: x['lessons_count'], reverse=True)
+
+        context = {
+            'period': period,
+            'start_date': start_date,
+            'end_date': end_date,
+            'teachers': result,
+        }
+
+        # Генерация PDF через BytesIO
+        pdf_file = render_to_pdf("reports/teacher_workload.html", context)
+
+        response = HttpResponse(pdf_file.read(), content_type="application/pdf")
+        response['Content-Disposition'] = f'attachment; filename="teacher_workload_{period}.pdf"'
+        pdf_file.close()
+        return response
+
+
 
 class PopularCoursesAnalytics(APIView):
     permission_classes = [IsAdmin]
@@ -991,6 +1111,44 @@ class PopularCoursesAnalytics(APIView):
             )
         
 
+
+class PopularCoursesPDFView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        try:
+            directions = Direction.objects.annotate(
+                num_students=Count('groups__students', distinct=True),
+                num_groups=Count('groups', distinct=True)
+            ).filter(num_students__gt=0).order_by('-num_students')
+
+            result = []
+            for rank, direction in enumerate(directions, start=1):
+                income = Payment.objects.filter(
+                    invoice__course__group__direction=direction
+                ).aggregate(total=Sum('amount'))['total'] or 0
+
+                result.append({
+                    'rank': rank,
+                    'course': direction.name,
+                    'students_count': direction.num_students,
+                    'groups_count': direction.num_groups,
+                    'income': float(income)
+                })
+
+            context = {
+                'courses': result
+            }
+
+            pdf_file = render_to_pdf("reports/popular_courses.html", context)
+
+            response = HttpResponse(pdf_file.read(), content_type="application/pdf")
+            response['Content-Disposition'] = 'attachment; filename="popular_courses.pdf"'
+            pdf_file.close()
+            return response
+
+        except Exception as e:
+            return HttpResponse(f"Ошибка: {e}", status=500)
 
 
 

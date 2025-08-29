@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from app.administration.views import (
-    GroupViewSet, TeacherViewSet, StudentViewSet, 
+    GroupViewSet, TeacherViewSet, StudentViewSet, PopularCoursesPDFView,
     LessonViewSet, AttendanceViewSet, PaymentViewSet, 
     GroupDashboardView, MonthsViewSet, GroupTableViewSet, StudentTableViewSet,
     TeacherTableViewSet, IncomeViewSet, ExpenseViewSet, TeacherPaymentViewSet, 
@@ -10,7 +10,7 @@ from app.administration.views import (
     ActiveStudentsAnalytics, MonthlyIncomeAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
     StudentProfileView, StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView, 
     HomeworkListView, LessonDetailView, HomeworkSubmissionView, MyHomeworkSubmissionsView, TeacherHomeworkListView,
-    HomeworkReviewView, StudentGradesView, PaymentNotificationViewSet
+    HomeworkReviewView, StudentGradesView, PaymentNotificationViewSet, MonthlyIncomePDFView, TeacherWorkloadPDFView
     )
 
 router = DefaultRouter()
@@ -48,8 +48,11 @@ urlpatterns = [
     path('daily-schedule/', DailyScheduleView.as_view(), name='daily-schedule'),
     path('active-students/', ActiveStudentsAnalytics.as_view(), name='active-students'),
     path('monthly-income/', MonthlyIncomeAnalytics.as_view(), name='monthly-income'),
+    path('monthly-income-pdf/', MonthlyIncomePDFView.as_view(), name='monthly-income-pdf'),
     path('teacher-workload/', TeacherWorkloadAnalytics.as_view(), name='teacher-workload'),
+    path('teacher-workload-pdf/', TeacherWorkloadPDFView.as_view(), name='teacher-workload-pdf'),
     path('popular-courses/', PopularCoursesAnalytics.as_view(), name='popular-courses'),
+    path('popular-courses-pdf/', PopularCoursesPDFView.as_view(), name='popular-courses-pdf'),
     path('students/<int:student_id>/profile/', StudentProfileView.as_view(), name='student-profile'),
     path('students/<int:student_id>/attendance/', StudentAttendanceView.as_view(), name='student-attendance'),
     path('students/<int:student_id>/payments/', StudentPaymentsView.as_view(), name='student-payments'),

@@ -14,7 +14,9 @@ from app.users.models import CustomUser
 def render_to_pdf(template_src, context_dict):
     html_string = render_to_string(template_src, context_dict)
     html = HTML(string=html_string, base_url=settings.BASE_DIR)
-    result = tempfile.NamedTemporaryFile(delete=True, suffix=".pdf")
+
+    # Создаем временный файл без блокировки
+    result = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     html.write_pdf(target=result.name)
     result.seek(0)
     return result
