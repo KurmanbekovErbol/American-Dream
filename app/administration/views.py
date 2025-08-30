@@ -1,14 +1,14 @@
-import calendar
-from django.http import Http404
-from rest_framework import viewsets, generics, status, permissions
+from rest_framework import viewsets, generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db.models import Sum, Count
 from datetime import timedelta
 from django.utils import timezone
+from io import BytesIO
+from django.core.mail import EmailMessage
 from django.db.models.functions import Concat
 from rest_framework.decorators import action
-from django.http import HttpResponse
+from django.http import HttpResponse, FileResponse
 from django.conf import settings
 from django_filters.rest_framework import DjangoFilterBackend
 import datetime
@@ -30,7 +30,7 @@ from app.users.permissions import (
     IsAdminOrManager, IsAdmin, IsTeacher, IsStudent, IsAdminOrTeacher, IsAdminOrReadOnlyForOthers, IsAdminOrReadOnlyForManagersAndTeachers, 
     IsAdminOrTeacherFullAccessOthersReadOnly, IsInAllowedRoles, IsTeacherFullAccessStudentReadOnly
     )
-from app.utils import render_to_pdf
+from app.utils import render_to_pdf, send_financial_reports_to_manager
 
 
 class GroupViewSet(viewsets.ModelViewSet):
@@ -578,11 +578,62 @@ class IncomeViewSet(viewsets.ModelViewSet):
     filterset_fields = ['direction', 'payment_method', 'date', 'is_full_payment']
     permission_classes = [IsAdminOrManager]
 
+
+class IncomePDFView(APIView):
+    def get(self, request, *args, **kwargs):
+        # Получаем все доходы
+        incomes = Income.objects.all().select_related('direction', 'student', 'group')
+
+        # Можно посчитать общую сумму
+        total_amount = incomes.aggregate(Sum("amount"))["amount__sum"] or 0
+
+        # Контекст для шаблона
+        context = {
+            "incomes": incomes,
+            "total_amount": total_amount,
+        }
+
+        pdf_file = render_to_pdf("reports/income_pdf_template.html", context)
+        return HttpResponse(pdf_file, content_type="application/pdf")
+    
+
+    
+
 class ExpenseViewSet(viewsets.ModelViewSet):
     queryset = Expense.objects.all().select_related('teacher')
     serializer_class = ExpenseSerializer
     filterset_fields = ['category', 'date']
     permission_classes = [IsAdminOrManager]
+
+
+
+class ExpensePDFView(APIView):
+    def get(self, request, *args, **kwargs):
+        # Получаем все расходы
+        expenses = Expense.objects.all().select_related('teacher')
+
+        # Сериализуем данные
+        serializer = ExpenseSerializer(expenses, many=True)
+
+        # Считаем общую сумму
+        total_amount = expenses.aggregate(Sum("amount"))["amount__sum"] or 0
+
+        # Контекст для шаблона
+        context = {
+            "expenses": serializer.data,
+            "total_amount": total_amount,
+        }
+
+        # Генерация PDF
+        pdf_file = render_to_pdf("reports/expense_pdf_template.html", context)
+
+        # Возвращаем PDF
+        response = HttpResponse(pdf_file, content_type="application/pdf")
+        response['Content-Disposition'] = 'inline; filename="expense_report.pdf"'
+        return response
+
+
+
 
 class TeacherPaymentViewSet(viewsets.ModelViewSet):
     queryset = TeacherPayment.objects.all().select_related('teacher')
@@ -590,11 +641,50 @@ class TeacherPaymentViewSet(viewsets.ModelViewSet):
     filterset_fields = ['teacher', 'date', 'is_paid']
     permission_classes = [IsAdminOrManager]
 
+
+class TeacherPaymentsPDFView(APIView):
+    def get(self, request, *args, **kwargs):
+        payments = TeacherPayment.objects.all()
+        total_amount = payments.aggregate(Sum("paid_amount"))["paid_amount__sum"] or 0
+
+        context = {
+            "payments": payments,
+            "total_amount": total_amount,
+        }
+
+        pdf_file = render_to_pdf("reports/teacher_payments.html", context)
+        return HttpResponse(pdf_file, content_type="application/pdf")
+
+
 class FinancialReportViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = FinancialReport.objects.all()
     serializer_class = FinancialReportSerializer
     filterset_fields = ['report_type', 'start_date', 'end_date']
     permission_classes = [IsAdminOrManager]
+
+
+
+class FinancialReportPDFView(APIView):
+    def get(self, request, *args, **kwargs):
+        # Получаем все отчеты
+        reports = FinancialReport.objects.all()
+
+        # Сериализуем их
+        serializer = FinancialReportSerializer(reports, many=True)
+
+        context = {
+            "reports": serializer.data,
+        }
+
+        # Генерация PDF
+        pdf_file = render_to_pdf("reports/financial_report_pdf_template.html", context)
+
+        # Возврат PDF
+        response = HttpResponse(pdf_file, content_type="application/pdf")
+        response['Content-Disposition'] = 'inline; filename="financial_report.pdf"'
+        return response
+
+
 
 # views.py
 class GenerateFinancialReport(APIView):
@@ -1572,3 +1662,13 @@ class PaymentNotificationViewSet(viewsets.ModelViewSet):
     queryset = PaymentNotification.objects.all()
     serializer_class = PaymentNotificationSerializer
     permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
+
+
+
+class SendReportsView(APIView):
+    def post(self, request, *args, **kwargs):
+        try:
+            send_financial_reports_to_manager()
+            return Response({"message": "Отчёты успешно отправлены!"}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

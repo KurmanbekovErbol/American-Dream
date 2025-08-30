@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: DejaVu Sans, sans-serif; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #333; padding: 5px; text-align: left; }
+        th { background-color: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <h2>Отчет по доходам</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Источник дохода</th>
+                <th>Сумма</th>
+                <th>Дата</th>
+                <th>Способ оплаты</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for income in incomes %}
+            <tr>
+                <td>{{ income.direction.name }}</td>
+                <td>{{ income.amount }}</td>
+                <td>{{ income.date }}</td>
+                <td>{{ income.get_payment_method_display }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
+
+
+
