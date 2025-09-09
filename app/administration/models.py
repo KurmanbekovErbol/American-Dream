@@ -484,19 +484,7 @@ class Payment(models.Model):
         super().save(*args, **kwargs)
         self.invoice.update_status()
 
-# class PaymentReminder(models.Model):
-#     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE,
-#                               related_name='reminders',
-#                               verbose_name="Счёт")
-#     reminder_date = models.DateField(verbose_name="Дата напоминания")
-#     days_before = models.PositiveIntegerField(verbose_name="Дней до оплаты")
-#     sent = models.BooleanField(default=False, verbose_name="Отправлено")
-#     message = models.TextField(verbose_name="Текст напоминания")
 
-#     class Meta:
-#         verbose_name = "Напоминание об оплате"
-#         verbose_name_plural = "Напоминания об оплате"
-#         ordering = ['reminder_date']
 
 class FinancialReport(models.Model):
     REPORT_TYPES = [

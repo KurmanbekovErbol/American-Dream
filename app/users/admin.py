@@ -5,20 +5,21 @@ from .models import CustomUser
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
     model = CustomUser
-    list_display = ("username", "role", "is_staff", "is_active")
-    list_filter = ("role", "is_staff", "is_superuser", "is_active")
-    search_fields = ("username",)
-    ordering = ("username",)
+    list_display = ("username", "first_name", "last_name", "role", "is_active", "is_staff", "date_joined")
+    list_filter = ("role", "is_active", "is_staff")
+    search_fields = ("username", "first_name", "last_name", "phone", "telegram")
+    ordering = ("-date_joined",)
 
     fieldsets = (
         (None, {"fields": ("username", "password")}),
-        ("Дополнительно", {"fields": ("role",)}),
-        ("Права", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
+        ("Персональная информация", {"fields": ("first_name", "last_name", "phone", "telegram", "age", "profile_picture")}),
+        ("Роли и доступ", {"fields": ("role", "is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
+        ("Даты", {"fields": ("last_login", "date_joined")}),
     )
 
     add_fieldsets = (
         (None, {
             "classes": ("wide",),
-            "fields": ("username", "password1", "password2", "role", "is_staff", "is_active"),
+            "fields": ("username", "password1", "password2", "role", "is_active", "is_staff"),
         }),
     )

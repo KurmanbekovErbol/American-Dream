@@ -4,13 +4,8 @@ from rest_framework.views import APIView
 from django.db.models import Sum, Count
 from datetime import timedelta
 from django.utils import timezone
-from io import BytesIO
-from django.core.mail import EmailMessage
-from django.db.models.functions import Concat
 from rest_framework.decorators import action
-from django.http import HttpResponse, FileResponse
-from django.conf import settings
-from django_filters.rest_framework import DjangoFilterBackend
+from django.http import HttpResponse
 import datetime
 from django.db.models import Count, Sum, Avg, Q
 from app.administration.models import (
@@ -233,19 +228,7 @@ class StudentViewSet(viewsets.ModelViewSet):
             for group in removed_groups:
                 group.students.remove(current_user)
 
-        return Response(StudentSerializer(student).data)
-
-
-
-
-
-
-
-# ==========================================================================================
-
-
-
-
+        return Response(StudentSerializer(student).data)    
 
 class LessonViewSet(viewsets.ModelViewSet):
     queryset = Lesson.objects.all()
@@ -550,27 +533,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
             
         return queryset.order_by('-date')
 
-# class PaymentReminderViewSet(viewsets.ModelViewSet):
-#     # permission_classes = [IsAdminOrManager]
-#     queryset = PaymentReminder.objects.all().select_related('invoice')
-#     serializer_class = PaymentReminderSerializer
-#     filterset_fields = ['sent', 'reminder_date']
-
-#     def get_queryset(self):
-#         queryset = super().get_queryset()
-        
-#         # Фильтр по периоду
-#         start_date = self.request.query_params.get('start_date')
-#         end_date = self.request.query_params.get('end_date')
-        
-#         if start_date and end_date:
-#             queryset = queryset.filter(reminder_date__range=[start_date, end_date])
-#         elif start_date:
-#             queryset = queryset.filter(reminder_date__gte=start_date)
-#         elif end_date:
-#             queryset = queryset.filter(reminder_date__lte=end_date)
-            
-#         return queryset.order_by('reminder_date')
 
 class IncomeViewSet(viewsets.ModelViewSet):
     queryset = Income.objects.all().select_related('direction', 'student', 'group')
@@ -580,6 +542,7 @@ class IncomeViewSet(viewsets.ModelViewSet):
 
 
 class IncomePDFView(APIView):
+    permission_classes = [IsAdmin]
     def get(self, request, *args, **kwargs):
         # Получаем все доходы
         incomes = Income.objects.all().select_related('direction', 'student', 'group')
@@ -608,6 +571,7 @@ class ExpenseViewSet(viewsets.ModelViewSet):
 
 
 class ExpensePDFView(APIView):
+    permission_classes = [IsAdmin]
     def get(self, request, *args, **kwargs):
         # Получаем все расходы
         expenses = Expense.objects.all().select_related('teacher')
@@ -643,6 +607,7 @@ class TeacherPaymentViewSet(viewsets.ModelViewSet):
 
 
 class TeacherPaymentsPDFView(APIView):
+    permission_classes = [IsAdmin]
     def get(self, request, *args, **kwargs):
         payments = TeacherPayment.objects.all()
         total_amount = payments.aggregate(Sum("paid_amount"))["paid_amount__sum"] or 0
@@ -665,6 +630,7 @@ class FinancialReportViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class FinancialReportPDFView(APIView):
+    permission_classes = [IsAdmin]
     def get(self, request, *args, **kwargs):
         # Получаем все отчеты
         reports = FinancialReport.objects.all()
@@ -730,34 +696,7 @@ class GenerateFinancialReport(APIView):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-# class SendPaymentReminders(APIView):
-#     # permission_classes = [IsAdminOrManager]
-#     def post(self, request, format=None):
-#         today = timezone.now().date()
-#         reminders = PaymentReminder.objects.filter(
-#             reminder_date=today,
-#             sent=False
-#         ).select_related('invoice', 'invoice__student')
         
-#         for reminder in reminders:
-#             try:
-#                 send_mail(
-#                     'Напоминание об оплате',
-#                     reminder.message,
-#                     settings.DEFAULT_FROM_EMAIL,
-#                     [reminder.invoice.student.email],
-#                     fail_silently=False,
-#                 )
-#                 reminder.sent = True
-#                 reminder.save()
-#             except Exception as e:
-#                 continue
-        
-#         return Response(
-#             {'sent': reminders.count()},
-#             status=status.HTTP_200_OK
-#         )
 
 class CalculateTeacherPayments(APIView):
     permission_classes = [IsAdminOrManager]
@@ -1666,6 +1605,7 @@ class PaymentNotificationViewSet(viewsets.ModelViewSet):
 
 
 class SendReportsView(APIView):
+    permission_classes = [IsAdmin]
     def post(self, request, *args, **kwargs):
         try:
             send_financial_reports_to_manager()

@@ -13,16 +13,12 @@ from app.administration.views import (
 router = DefaultRouter()
 router.register(r'groups', GroupViewSet, basename='group')
 router.register(r'student-table', StudentTableViewSet, basename='student-table')
-
-
 router.register(r'invoices', InvoiceViewSet, basename='invoice')
 router.register(r'payments', PaymentViewSet, basename='payment')
-# router.register(r'payment-reminders', PaymentReminderViewSet, basename='payment-reminder')
 router.register(r'financial-reports', FinancialReportViewSet, basename='financial-report')
 router.register(r'incomes', IncomeViewSet, basename='income')
 router.register(r'expenses', ExpenseViewSet, basename='expense')
 router.register(r'teacher-payments', TeacherPaymentViewSet, basename='teacher-payment')
-
 router.register(r'classrooms', ClassroomViewSet, basename='classroom')
 router.register(r'schedule', ScheduleViewSet, basename='schedule')
 router.register(r'leads', LeadViewSet, basename='lead')
