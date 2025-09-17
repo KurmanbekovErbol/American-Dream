@@ -36,13 +36,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False, verbose_name="Сотрудник")
     age = models.CharField(max_length=3, verbose_name="Возраст")
     date_joined = models.DateTimeField(default=timezone.now, verbose_name="Дата регистрации")
-    profile_picture = models.ImageField(
-        upload_to='profile_pictures/',
-        null=True,
-        blank=True,
-        validators=[FileExtensionValidator(['jpg', 'jpeg', 'png'])],
-        verbose_name="Фото профиля"
-    )
+    avatarka = models.FileField(upload_to="avatarka/", verbose_name="Изображение Профиля Файл", blank=False, null=True)
+
 
     USERNAME_FIELD = "username"
     REQUIRED_FIELDS = []

@@ -18,7 +18,7 @@ from app.administration.serializers import (
     PaymentSerializer, GroupDashboardSerializer, MonthsSerializer, GroupTableSerializer, StudentTableSerializer, TeacherTableSerializer, TeacherPaymentSerializer, ExpenseSerializer, IncomeSerializer, FinancialReportSerializer, InvoiceSerializer,
     ScheduleSerializer, ClassroomSerializer, DailyScheduleSerializer, ScheduleListSerializer, ActiveStudentsSerializer, PopularCoursesSerializer,
     TeacherWorkloadSerializer, MonthlyIncomeSerializer, StudentProfileSerializer, StudentAttendanceSerializer, PaymentHistorySerializer, LeadSerializer, LeadStatusUpdateSerializer, DashboardStatsSerializer,
-    LessonSerializer, LessonDetailSerializer, HomeworkListSerializer, HomeworkSubmissionSerializer, PaymentNotificationSerializer
+    LessonSerializer, LessonDetailSerializer, HomeworkListSerializer, HomeworkSubmissionSerializer, PaymentNotificationSerializer, TeacherProfileSerializer
     )
 from app.users.models import CustomUser
 from app.users.permissions import (
@@ -1186,9 +1186,6 @@ class StudentProfileView(generics.RetrieveUpdateAPIView):
     queryset = CustomUser.objects.filter(role='Student')
     lookup_url_kwarg = 'student_id'
     permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
-    
-    # Разрешаем доступ без аутентификации
-    authentication_classes = []
 
 class StudentAttendanceView(APIView):
     permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
@@ -1612,3 +1609,11 @@ class SendReportsView(APIView):
             return Response({"message": "Отчёты успешно отправлены!"}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+
+class TeacherProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = TeacherProfileSerializer
+    queryset = CustomUser.objects.filter(role='Teacher')
+    lookup_url_kwarg = 'teacher_id'
+    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]

@@ -10,7 +10,8 @@ from app.administration.views import (
     ActiveStudentsAnalytics, MonthlyIncomeAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
     StudentProfileView, StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView, 
     HomeworkListView, LessonDetailView, HomeworkSubmissionView, MyHomeworkSubmissionsView, TeacherHomeworkListView,
-    HomeworkReviewView, StudentGradesView, PaymentNotificationViewSet, MonthlyIncomePDFView, TeacherWorkloadPDFView
+    HomeworkReviewView, StudentGradesView, PaymentNotificationViewSet, MonthlyIncomePDFView, TeacherWorkloadPDFView,
+    TeacherProfileView
     )
 
 router = DefaultRouter()
@@ -57,6 +58,7 @@ urlpatterns = [
     path('lessons/<int:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
     path('lessons/<int:lesson_id>/submit/', HomeworkSubmissionView.as_view(), name='homework-submit'),
     path('my-submissions/', MyHomeworkSubmissionsView.as_view(), name='my-homework-submissions'),
+    path('teacher/<int:teacher_id>/profile/', TeacherProfileView.as_view(), name='teacher-profile'),
     path('teacher/homework/', TeacherHomeworkListView.as_view(), name='teacher-homework-list'),
     path('teacher/homework/<int:pk>/review/', HomeworkReviewView.as_view(), name='homework-review'),
     path('groups/<int:group_id>/grades/', StudentGradesView.as_view(), name='student-grades'),
