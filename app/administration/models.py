@@ -561,7 +561,7 @@ class Lead(models.Model):
         default='new',
         verbose_name="Статус"
     )
-    source = models.CharField(max_length=100, default='website_form', verbose_name="Источник")
+    source = models.CharField(max_length=100, verbose_name="Источник")
     comment = models.TextField(blank=True, verbose_name="Комментарий")
     created_at = models.DateTimeField(default=timezone.now, verbose_name="Дата создания")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")

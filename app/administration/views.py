@@ -23,7 +23,7 @@ from app.administration.serializers import (
 from app.users.models import CustomUser
 from app.users.permissions import (
     IsAdminOrManager, IsAdmin, IsTeacher, IsStudent, IsAdminOrTeacher, IsAdminOrReadOnlyForOthers, IsAdminOrReadOnlyForManagersAndTeachers, 
-    IsAdminOrTeacherFullAccessOthersReadOnly, IsInAllowedRoles, IsTeacherFullAccessStudentReadOnly
+    IsAdminOrTeacherFullAccessOthersReadOnly, IsInAllowedRoles, IsAdminTeacherOrReadOnlyStudent, IsAdminOrStudent
     )
 from app.utils import render_to_pdf, send_financial_reports_to_manager
 
@@ -238,7 +238,7 @@ class LessonViewSet(viewsets.ModelViewSet):
 class AttendanceViewSet(viewsets.ModelViewSet):
     queryset = Attendance.objects.all()
     serializer_class = AttendanceSerializer
-    permission_classes = [IsTeacher]
+    permission_classes = [IsAdminOrTeacher]
 
 
 
@@ -1348,8 +1348,8 @@ class AdminDashboardView(APIView):
         }
         
         # 2. Последние лиды
-        recent_invoices = Invoice.objects.order_by('-date_created')[:2].values(
-            'student__first_name', 'student__last_name', 'date_created', 'course__group__group_name', 'status', 'comment'
+        recent_invoices = Lead.objects.order_by('-created_at')[:2].values(
+            'name', 'phone', 'email', 'course', 'status', 'comment', 'created_at'
         )
         
         # 3. Оплаты
@@ -1434,7 +1434,7 @@ class AdminDashboardView(APIView):
 
 class HomeworkListView(generics.ListAPIView):
     serializer_class = HomeworkListSerializer
-    permission_classes = [IsTeacherFullAccessStudentReadOnly]
+    permission_classes = [IsAdminTeacherOrReadOnlyStudent]
     
     def get_queryset(self):
         # Получаем уроки, где есть домашние задания
@@ -1443,11 +1443,11 @@ class HomeworkListView(generics.ListAPIView):
 class LessonDetailView(generics.RetrieveAPIView):
     queryset = Lesson.objects.all()
     serializer_class = LessonDetailSerializer
-    permission_classes = [IsTeacherFullAccessStudentReadOnly]
+    permission_classes = [IsAdminTeacherOrReadOnlyStudent]
 
 class HomeworkSubmissionView(generics.CreateAPIView):
     serializer_class = HomeworkSubmissionSerializer
-    permission_classes = [IsStudent]
+    permission_classes = [IsAdminOrStudent]
     
     def perform_create(self, serializer):
         lesson_id = self.kwargs.get('lesson_id')
@@ -1467,7 +1467,7 @@ class HomeworkSubmissionView(generics.CreateAPIView):
 
 class MyHomeworkSubmissionsView(generics.ListAPIView):
     serializer_class = HomeworkSubmissionSerializer
-    permission_classes = [IsTeacherFullAccessStudentReadOnly]
+    permission_classes = [IsAdminTeacherOrReadOnlyStudent]
     
     def get_queryset(self):
         return HomeworkSubmission.objects.filter(
@@ -1480,7 +1480,7 @@ class MyHomeworkSubmissionsView(generics.ListAPIView):
 
 class TeacherHomeworkListView(generics.ListAPIView):
     serializer_class = HomeworkSubmissionSerializer
-    permission_classes = [IsTeacherFullAccessStudentReadOnly]
+    permission_classes = [IsAdminTeacherOrReadOnlyStudent]
     
     def get_queryset(self):
         # Получаем группы, где текущий пользователь является преподавателем
@@ -1500,7 +1500,7 @@ class TeacherHomeworkListView(generics.ListAPIView):
 class HomeworkReviewView(generics.UpdateAPIView):
     queryset = HomeworkSubmission.objects.all()
     serializer_class = HomeworkSubmissionSerializer
-    permission_classes = [IsTeacherFullAccessStudentReadOnly]
+    permission_classes = [IsAdminTeacherOrReadOnlyStudent]
 
     def get_object(self):
         obj = super().get_object()

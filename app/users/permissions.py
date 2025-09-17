@@ -115,10 +115,11 @@ class IsInAllowedRoles(BasePermission):
         return bool(user and user.is_authenticated and user.role in self.allowed_roles)
     
 
-class IsTeacherFullAccessStudentReadOnly(BasePermission):
+class IsAdminTeacherOrReadOnlyStudent(BasePermission):
     """
-    Полный доступ для Teacher.
-    Чтение для Student.
+    - Administrator и Teacher: полный доступ
+    - Student: только чтение (GET, HEAD, OPTIONS)
+    - Остальные: нет доступа
     """
 
     def has_permission(self, request, view):
@@ -126,13 +127,26 @@ class IsTeacherFullAccessStudentReadOnly(BasePermission):
         if not user or not user.is_authenticated:
             return False
 
-        # Полный доступ для преподавателя
-        if user.role == "Teacher":
+        # Полный доступ для Administrator и Teacher
+        if user.role in ["Administrator", "Teacher"]:
             return True
 
-        # Чтение для студента
-        if user.role == "Student":
-            return request.method in SAFE_METHODS
+        # Только чтение для Student
+        if user.role == "Student" and request.method in SAFE_METHODS:
+            return True
 
-        # Остальным запрещено
         return False
+    
+
+
+class IsAdminOrStudent(BasePermission):
+    """
+    - Administrator и Student: полный доступ
+    - Остальные: нет доступа
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user and user.is_authenticated and user.role in ["Administrator", "Student"]
+        )
