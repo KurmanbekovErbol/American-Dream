@@ -1080,3 +1080,29 @@ class PaymentNotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentNotification
         fields = '__all__'
+
+
+
+
+from rest_framework import serializers
+from .models import CustomUser
+
+class TeacherProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = [
+            "id",
+            "username",
+            "first_name",
+            "last_name",
+            "phone",
+            "telegram",
+            "role",
+            "age",
+            "date_joined",
+            "profile_picture",
+            "password",   # ⚠️ тут будет хэш, а не настоящий пароль
+        ]
+        extra_kwargs = {
+            "password": {"write_only": True}  # пароль нельзя менять/читать напрямую
+        }
