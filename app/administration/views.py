@@ -1,4 +1,4 @@
-from rest_framework import viewsets, generics, status
+from rest_framework import viewsets, generics, status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db.models import Sum, Count
@@ -17,13 +17,13 @@ from app.administration.serializers import (
     DirectionSerializer, GroupSerializer, GroupCreateSerializer, TeacherCreateSerializer, TeacherSerializer, StudentCreateSerializer, StudentSerializer, LessonSerializer, AttendanceSerializer, 
     PaymentSerializer, GroupDashboardSerializer, MonthsSerializer, GroupTableSerializer, StudentTableSerializer, TeacherTableSerializer, TeacherPaymentSerializer, ExpenseSerializer, IncomeSerializer, FinancialReportSerializer, InvoiceSerializer,
     ScheduleSerializer, ClassroomSerializer, DailyScheduleSerializer, ScheduleListSerializer, ActiveStudentsSerializer, PopularCoursesSerializer,
-    TeacherWorkloadSerializer, MonthlyIncomeSerializer, StudentProfileSerializer, StudentAttendanceSerializer, PaymentHistorySerializer, LeadSerializer, LeadStatusUpdateSerializer, DashboardStatsSerializer,
-    LessonSerializer, LessonDetailSerializer, HomeworkListSerializer, HomeworkSubmissionSerializer, PaymentNotificationSerializer, TeacherProfileSerializer
+    TeacherWorkloadSerializer, MonthlyIncomeSerializer, StudentAttendanceSerializer, PaymentHistorySerializer, LeadSerializer, LeadStatusUpdateSerializer, DashboardStatsSerializer,
+    LessonSerializer, LessonDetailSerializer, HomeworkListSerializer, HomeworkSubmissionSerializer, PaymentNotificationSerializer, ProfileSerializer
     )
 from app.users.models import CustomUser
 from app.users.permissions import (
     IsAdminOrManager, IsAdmin, IsTeacher, IsStudent, IsAdminOrTeacher, IsAdminOrReadOnlyForOthers, IsAdminOrReadOnlyForManagersAndTeachers, 
-    IsAdminOrTeacherFullAccessOthersReadOnly, IsInAllowedRoles, IsAdminTeacherOrReadOnlyStudent, IsAdminOrStudent
+    IsAdminOrTeacherFullAccessOthersReadOnly, IsInAllowedRoles, IsAdminTeacherOrReadOnlyStudent, IsAdminOrStudent, IsManager
     )
 from app.utils import render_to_pdf, send_financial_reports_to_manager
 
@@ -1181,11 +1181,6 @@ class PopularCoursesPDFView(APIView):
 
 
 
-class StudentProfileView(generics.RetrieveUpdateAPIView):
-    serializer_class = StudentProfileSerializer
-    queryset = CustomUser.objects.filter(role='Student')
-    lookup_url_kwarg = 'student_id'
-    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
 
 class StudentAttendanceView(APIView):
     permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
@@ -1612,8 +1607,9 @@ class SendReportsView(APIView):
         
 
 
-class TeacherProfileView(generics.RetrieveUpdateAPIView):
-    serializer_class = TeacherProfileSerializer
-    queryset = CustomUser.objects.filter(role='Teacher')
-    lookup_url_kwarg = 'teacher_id'
-    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
+class CurrentUserProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = ProfileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user

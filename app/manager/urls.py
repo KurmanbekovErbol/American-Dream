@@ -7,7 +7,7 @@ from app.administration.views import (
     InvoiceViewSet, FinancialReportViewSet, 
     ClassroomViewSet, ScheduleViewSet, DailyScheduleView,
     ActiveStudentsAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
-    StudentProfileView, StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView
+    StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView
     )
 
 router = DefaultRouter()
@@ -30,7 +30,6 @@ urlpatterns = [
     path('active-students/', ActiveStudentsAnalytics.as_view(), name='active-students'),
     path('teacher-workload/', TeacherWorkloadAnalytics.as_view(), name='teacher-workload'),
     path('popular-courses/', PopularCoursesAnalytics.as_view(), name='popular-courses'),
-    path('students/<int:student_id>/profile/', StudentProfileView.as_view(), name='student-profile'),
     path('students/<int:student_id>/attendance/', StudentAttendanceView.as_view(), name='student-attendance'),
     path('students/<int:student_id>/payments/', StudentPaymentsView.as_view(), name='student-payments'),
     path('admin-dashboard/', AdminDashboardView.as_view(), name='admin-dashboard'),
