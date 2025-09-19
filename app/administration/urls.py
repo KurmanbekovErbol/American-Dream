@@ -69,7 +69,4 @@ urlpatterns = [
     path("send-reports/", SendReportsView.as_view(), name="send-reports"),
     path('monthly-income-pdf/', MonthlyIncomePDFView.as_view(), name='monthly-income-pdf'),
     path('teacher-workload-pdf/', TeacherWorkloadPDFView.as_view(), name='teacher-workload-pdf'),
-
-    path('teacher/<int:pk>/', TeacherProfileView.as_view(), name='teacher-profile'),
-    path('teacher/me/', TeacherProfileView.as_view(), name='my-profile'),
 ]

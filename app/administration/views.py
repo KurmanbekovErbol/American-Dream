@@ -1,6 +1,9 @@
 from rest_framework import viewsets, generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework import permissions
+from rest_framework.permissions import IsAuthenticated
+
 from django.db.models import Sum, Count
 from datetime import timedelta
 from django.utils import timezone
@@ -238,11 +241,7 @@ class LessonViewSet(viewsets.ModelViewSet):
 class AttendanceViewSet(viewsets.ModelViewSet):
     queryset = Attendance.objects.all()
     serializer_class = AttendanceSerializer
-<<<<<<< HEAD
     permission_classes = [IsAdminOrTeacher]
-=======
-    permission_classes = [IsTeacher, IsAdmin]
->>>>>>> temp-save
 
 
 
@@ -1189,11 +1188,7 @@ class StudentProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = StudentProfileSerializer
     queryset = CustomUser.objects.filter(role='Student')
     lookup_url_kwarg = 'student_id'
-<<<<<<< HEAD
     permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
-=======
-    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers, IsAdmin]
->>>>>>> temp-save
 
 class StudentAttendanceView(APIView):
     permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers, IsAdmin]
@@ -1352,10 +1347,7 @@ class AdminDashboardView(APIView):
                 .count(),
         }
         
-<<<<<<< HEAD
         # 2. Последние лиды
-=======
->>>>>>> temp-save
         recent_invoices = Lead.objects.order_by('-created_at')[:2].values(
             'name', 'phone', 'email', 'course', 'status', 'comment', 'created_at'
         )
@@ -1439,11 +1431,7 @@ class AdminDashboardView(APIView):
 
 class HomeworkListView(generics.ListAPIView):
     serializer_class = HomeworkListSerializer
-<<<<<<< HEAD
     permission_classes = [IsAdminTeacherOrReadOnlyStudent]
-=======
-    permission_classes = [IsTeacherFullAccessStudentReadOnly, IsAdmin]
->>>>>>> temp-save
     
     def get_queryset(self):
         # Получаем уроки, где есть домашние задания
@@ -1452,19 +1440,11 @@ class HomeworkListView(generics.ListAPIView):
 class LessonDetailView(generics.RetrieveAPIView):
     queryset = Lesson.objects.all()
     serializer_class = LessonDetailSerializer
-<<<<<<< HEAD
     permission_classes = [IsAdminTeacherOrReadOnlyStudent]
 
 class HomeworkSubmissionView(generics.CreateAPIView):
     serializer_class = HomeworkSubmissionSerializer
     permission_classes = [IsAdminOrStudent]
-=======
-    permission_classes = [IsTeacherFullAccessStudentReadOnly, IsAdmin]
-
-class HomeworkSubmissionView(generics.CreateAPIView):
-    serializer_class = HomeworkSubmissionSerializer
-    permission_classes = [IsStudent, IsAdmin]
->>>>>>> temp-save
     
     def perform_create(self, serializer):
         lesson_id = self.kwargs.get('lesson_id')
@@ -1484,11 +1464,7 @@ class HomeworkSubmissionView(generics.CreateAPIView):
 
 class MyHomeworkSubmissionsView(generics.ListAPIView):
     serializer_class = HomeworkSubmissionSerializer
-<<<<<<< HEAD
     permission_classes = [IsAdminTeacherOrReadOnlyStudent]
-=======
-    permission_classes = [IsTeacherFullAccessStudentReadOnly, IsAdmin]
->>>>>>> temp-save
     
     def get_queryset(self):
         return HomeworkSubmission.objects.filter(
@@ -1501,11 +1477,7 @@ class MyHomeworkSubmissionsView(generics.ListAPIView):
 
 class TeacherHomeworkListView(generics.ListAPIView):
     serializer_class = HomeworkSubmissionSerializer
-<<<<<<< HEAD
     permission_classes = [IsAdminTeacherOrReadOnlyStudent]
-=======
-    permission_classes = [IsTeacherFullAccessStudentReadOnly, IsAdmin]
->>>>>>> temp-save
     
     def get_queryset(self):
         # Получаем группы, где текущий пользователь является преподавателем
@@ -1525,11 +1497,7 @@ class TeacherHomeworkListView(generics.ListAPIView):
 class HomeworkReviewView(generics.UpdateAPIView):
     queryset = HomeworkSubmission.objects.all()
     serializer_class = HomeworkSubmissionSerializer
-<<<<<<< HEAD
     permission_classes = [IsAdminTeacherOrReadOnlyStudent]
-=======
-    permission_classes = [IsTeacherFullAccessStudentReadOnly, IsAdmin]
->>>>>>> temp-save
 
     def get_object(self):
         obj = super().get_object()
@@ -1649,3 +1617,4 @@ class TeacherProfileView(generics.RetrieveUpdateAPIView):
     queryset = CustomUser.objects.filter(role='Teacher')
     lookup_url_kwarg = 'teacher_id'
     permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
+
