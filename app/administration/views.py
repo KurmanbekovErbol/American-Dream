@@ -1614,12 +1614,6 @@ class SendReportsView(APIView):
         
 
 
-class TeacherProfileView(generics.RetrieveUpdateAPIView):
-    serializer_class = TeacherProfileSerializer
-    queryset = CustomUser.objects.filter(role='Teacher')
-    lookup_url_kwarg = 'teacher_id'
-    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
-
 class CurrentUserProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = ProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
