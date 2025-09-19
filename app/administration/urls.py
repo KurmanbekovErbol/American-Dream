@@ -11,10 +11,11 @@ from app.administration.views import (
     StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView, 
     HomeworkListView, LessonDetailView, HomeworkSubmissionView, MyHomeworkSubmissionsView, TeacherHomeworkListView,
     HomeworkReviewView, StudentGradesView, PaymentNotificationViewSet, MonthlyIncomePDFView, TeacherWorkloadPDFView,
-    CurrentUserProfileView
+    CurrentUserProfileView, DirectionViewSet
     )
 
 router = DefaultRouter()
+router.register(r'direction', DirectionViewSet, basename='direction')
 router.register(r'groups', GroupViewSet, basename='group')
 router.register(r'teachers-add', TeacherViewSet, basename='teacher_add')
 router.register(r'students-add', StudentViewSet, basename='student_add')

@@ -28,6 +28,13 @@ from app.users.permissions import (
 from app.utils import render_to_pdf, send_financial_reports_to_manager
 
 
+
+class DirectionViewSet(viewsets.ModelViewSet):
+    queryset = Direction.objects.all()
+    serializer_class = DirectionSerializer
+    permission_classes = [IsAdminOrTeacher]
+
+
 class GroupViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdmin]
     queryset = Group.objects.all().select_related('direction')
