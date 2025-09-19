@@ -4,11 +4,8 @@ from app.administration.views import (
     GroupViewSet, TeacherViewSet, StudentViewSet, 
     LessonViewSet, AttendanceViewSet, PaymentViewSet, 
     GroupDashboardView, MonthsViewSet, GroupTableViewSet, StudentTableViewSet,
-    TeacherTableViewSet, IncomeViewSet, ExpenseViewSet, TeacherPaymentViewSet, 
-    InvoiceViewSet, FinancialReportViewSet, GenerateFinancialReport, 
-    CalculateTeacherPayments, ClassroomViewSet, ScheduleViewSet, DailyScheduleView,
-    ActiveStudentsAnalytics, MonthlyIncomeAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
-    StudentProfileView, StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView,
+    ScheduleViewSet, DailyScheduleView,
+    StudentAttendanceView,
     MyHomeworkSubmissionsView, TeacherHomeworkListView, HomeworkReviewView
     )
 
@@ -26,7 +23,6 @@ urlpatterns = [
     path('', include(router.urls)),
     path('groups/<int:id>/dashboard/', GroupDashboardView.as_view(), name='group-dashboard'),
     path('daily-schedule/', DailyScheduleView.as_view(), name='daily-schedule'),
-    path('students/<int:student_id>/profile/', StudentProfileView.as_view(), name='student-profile'),
     path('students/<int:student_id>/attendance/', StudentAttendanceView.as_view(), name='student-attendance'),
     path('my-submissions/', MyHomeworkSubmissionsView.as_view(), name='my-homework-submissions'),
     path('teacher/homework/', TeacherHomeworkListView.as_view(), name='teacher-homework-list'),

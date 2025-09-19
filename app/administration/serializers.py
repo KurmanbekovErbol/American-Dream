@@ -2,6 +2,7 @@ from rest_framework import serializers
 import datetime
 from django.utils import timezone
 from django.db.models import Sum, Avg
+from django.contrib.auth import get_user_model
 
 from app.administration.models import (
     Direction, Group, Teacher, Student, Lesson, Attendance, Payment, 
@@ -893,63 +894,6 @@ class PopularCoursesSerializer(serializers.Serializer):
     students_count = serializers.IntegerField()
     groups_count = serializers.IntegerField()
     income = serializers.DecimalField(max_digits=10, decimal_places=0)
-
-
-
-
-class StudentProfileSerializer(serializers.ModelSerializer):
-    teacher = serializers.SerializerMethodField()
-    direction = serializers.SerializerMethodField()
-    course = serializers.SerializerMethodField()
-    password = serializers.CharField(write_only=True, required=False)
-    avatarka = serializers.FileField(required=False, allow_null=True)
-    avatarka_url = serializers.SerializerMethodField(read_only=True)
-
-    class Meta:
-        model = CustomUser
-        fields = [
-            'id', 'first_name', 'last_name', 'username',
-            'telegram', 'phone', 'teacher', 'direction', 'course',
-            'password', 'avatarka', 'avatarka_url'
-        ]
-        extra_kwargs = {
-            'username': {'read_only': True}
-        }
-
-    def update(self, instance, validated_data):
-        # обработка пароля
-        password = validated_data.pop('password', None)
-        if password:
-            instance.set_password(password)
-
-        # обработка аватарки
-        avatarka = validated_data.pop('avatarka', None)
-        if avatarka is not None:
-            instance.avatarka = avatarka
-
-        return super().update(instance, validated_data)
-
-    def get_teacher(self, obj):
-        group = obj.student_groups.first()
-        return group.teacher.get_full_name() if group and group.teacher else None
-
-    def get_direction(self, obj):
-        group = obj.student_groups.first()
-        return group.direction.name if group and group.direction else None
-
-    def get_course(self, obj):
-        group = obj.student_groups.first()
-        if not group:
-            return None
-        latest_course = group.courses.order_by('-course_number').first()
-        return latest_course.course_number if latest_course else None
-
-    def get_avatarka_url(self, obj):
-        request = self.context.get('request')
-        if obj.avatarka and hasattr(obj.avatarka, 'url') and request:
-            return request.build_absolute_uri(obj.avatarka.url)
-        return None
-
     
 
 
@@ -1105,7 +1049,9 @@ class PaymentNotificationSerializer(serializers.ModelSerializer):
 
 
 
-class TeacherProfileSerializer(serializers.ModelSerializer):
+CustomUser = get_user_model()
+
+class ProfileSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
     avatarka = serializers.FileField(required=False, allow_null=True)
     avatarka_url = serializers.SerializerMethodField(read_only=True)
@@ -1113,21 +1059,22 @@ class TeacherProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = [
-            'id', 'first_name', 'last_name', 'username',
-            'telegram', 'phone', 'age',
-            'password', 'avatarka', 'avatarka_url'
+            'id', 'username', 'first_name', 'last_name',
+            'telegram', 'phone', 'age', 'email',
+            'password', 'avatarka', 'avatarka_url', 'role'
         ]
         extra_kwargs = {
-            'username': {'read_only': True}
+            'username': {'read_only': True},
+            'role': {'read_only': True},
         }
 
     def update(self, instance, validated_data):
-        # Обновляем пароль, если пришёл
+        # смена пароля
         password = validated_data.pop('password', None)
         if password:
             instance.set_password(password)
 
-        # Обновляем аватарку, если пришла
+        # обновление аватарки
         avatarka = validated_data.pop('avatarka', None)
         if avatarka is not None:
             instance.avatarka = avatarka

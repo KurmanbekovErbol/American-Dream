@@ -8,13 +8,14 @@ from app.administration.views import (
     InvoiceViewSet, FinancialReportViewSet, GenerateFinancialReport, IncomePDFView, FinancialReportPDFView,
     CalculateTeacherPayments, ClassroomViewSet, ScheduleViewSet, DailyScheduleView, ExpensePDFView,
     ActiveStudentsAnalytics, MonthlyIncomeAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
-    StudentProfileView, StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView, 
+    StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView, 
     HomeworkListView, LessonDetailView, HomeworkSubmissionView, MyHomeworkSubmissionsView, TeacherHomeworkListView,
     HomeworkReviewView, StudentGradesView, PaymentNotificationViewSet, MonthlyIncomePDFView, TeacherWorkloadPDFView,
-    TeacherProfileView
+    CurrentUserProfileView, DirectionViewSet
     )
 
 router = DefaultRouter()
+router.register(r'direction', DirectionViewSet, basename='direction')
 router.register(r'groups', GroupViewSet, basename='group')
 router.register(r'teachers-add', TeacherViewSet, basename='teacher_add')
 router.register(r'students-add', StudentViewSet, basename='student_add')
@@ -49,8 +50,6 @@ urlpatterns = [
     path('monthly-income/', MonthlyIncomeAnalytics.as_view(), name='monthly-income'),
     path('teacher-workload/', TeacherWorkloadAnalytics.as_view(), name='teacher-workload'), 
     path('popular-courses/', PopularCoursesAnalytics.as_view(), name='popular-courses'),
-    path('popular-courses-pdf/', PopularCoursesPDFView.as_view(), name='popular-courses-pdf'),
-    path('students/<int:student_id>/profile/', StudentProfileView.as_view(), name='student-profile'),
     path('students/<int:student_id>/attendance/', StudentAttendanceView.as_view(), name='student-attendance'),
     path('students/<int:student_id>/payments/', StudentPaymentsView.as_view(), name='student-payments'),
     path('admin-dashboard/', AdminDashboardView.as_view(), name='admin-dashboard'),
@@ -58,15 +57,16 @@ urlpatterns = [
     path('lessons/<int:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
     path('lessons/<int:lesson_id>/submit/', HomeworkSubmissionView.as_view(), name='homework-submit'),
     path('my-submissions/', MyHomeworkSubmissionsView.as_view(), name='my-homework-submissions'),
-    path('teacher/<int:teacher_id>/profile/', TeacherProfileView.as_view(), name='teacher-profile'),
     path('teacher/homework/', TeacherHomeworkListView.as_view(), name='teacher-homework-list'),
     path('teacher/homework/<int:pk>/review/', HomeworkReviewView.as_view(), name='homework-review'),
     path('groups/<int:group_id>/grades/', StudentGradesView.as_view(), name='student-grades'),
+    path("send-reports/", SendReportsView.as_view(), name="send-reports"),
+    path('profile/', CurrentUserProfileView.as_view(), name='user-profile'),
+    path('popular-courses-pdf/', PopularCoursesPDFView.as_view(), name='popular-courses-pdf'),
     path('teacher-payments-pdf/', TeacherPaymentsPDFView.as_view(), name='teacher-payments-pdf'),
     path('incomes-pdf/', IncomePDFView.as_view(), name='income-pdf'),
     path('expenses-pdf/', ExpensePDFView.as_view(), name='expense-pdf'),
     path('financial-report-pdf/', FinancialReportPDFView.as_view(), name='financial-report-pdf'),
-    path("send-reports/", SendReportsView.as_view(), name="send-reports"),
     path('monthly-income-pdf/', MonthlyIncomePDFView.as_view(), name='monthly-income-pdf'),
     path('teacher-workload-pdf/', TeacherWorkloadPDFView.as_view(), name='teacher-workload-pdf'),
 ]
