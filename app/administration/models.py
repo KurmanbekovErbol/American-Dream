@@ -20,8 +20,6 @@ class Group(models.Model):
         ('online', 'Онлайн'),
         ('offline', 'Оффлайн'),
     ]
-
-
     group_name = models.CharField(max_length=255, verbose_name="Название группы")
     direction = models.ForeignKey(
         Direction,
