@@ -65,10 +65,32 @@ class LessonAdmin(admin.ModelAdmin):
 
 @admin.register(HomeworkSubmission)
 class HomeworkSubmissionAdmin(admin.ModelAdmin):
-    list_display = ("lesson", "student", "status", "score", "submitted_at")
-    list_filter = ("status", "submitted_at")
-    search_fields = ("student__first_name", "student__last_name", "lesson__title")
-    autocomplete_fields = ("lesson", "student")
+    list_display = (
+        "id",
+        "lesson",
+        "student",
+        "status",
+        "score",
+        "submitted_at",
+        "updated_at",
+    )
+    list_filter = ("status", "submitted_at", "updated_at")
+    search_fields = ("student__username", "student__first_name", "student__last_name", "lesson__title")
+    readonly_fields = ("submitted_at", "updated_at")
+    ordering = ("-submitted_at",)
+
+    fieldsets = (
+        (None, {
+            "fields": ("lesson", "student", "project_links", "files")
+        }),
+        ("Оценивание", {
+            "fields": ("status", "score", "teacher_comment")
+        }),
+        ("Служебная информация", {
+            "fields": ("submitted_at", "updated_at"),
+        }),
+    )
+
 
 
 @admin.register(Attendance)

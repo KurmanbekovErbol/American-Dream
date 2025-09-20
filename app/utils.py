@@ -1,5 +1,5 @@
 from django.template.loader import render_to_string
-# from weasyprint import HTML
+from weasyprint import HTML
 from django.conf import settings
 from django.core.mail import EmailMessage
 import tempfile

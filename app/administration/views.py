@@ -18,7 +18,8 @@ from app.administration.serializers import (
     PaymentSerializer, GroupDashboardSerializer, MonthsSerializer, GroupTableSerializer, StudentTableSerializer, TeacherTableSerializer, TeacherPaymentSerializer, ExpenseSerializer, IncomeSerializer, FinancialReportSerializer, InvoiceSerializer,
     ScheduleSerializer, ClassroomSerializer, DailyScheduleSerializer, ScheduleListSerializer, ActiveStudentsSerializer, PopularCoursesSerializer,
     TeacherWorkloadSerializer, MonthlyIncomeSerializer, StudentAttendanceSerializer, PaymentHistorySerializer, LeadSerializer, LeadStatusUpdateSerializer, DashboardStatsSerializer,
-    LessonSerializer, LessonDetailSerializer, HomeworkListSerializer, HomeworkSubmissionSerializer, PaymentNotificationSerializer, ProfileSerializer
+    LessonSerializer, LessonDetailSerializer, HomeworkListSerializer, HomeworkSubmissionSerializer, PaymentNotificationSerializer, ProfileSerializer,
+    TeacherProfileSerializer, StudentProfileSerializer
     )
 from app.users.models import CustomUser
 from app.users.permissions import (
@@ -847,21 +848,13 @@ class ActiveStudentsAnalytics(APIView):
             status__in=['1', 'online']
         ).values('student').distinct().count()
         
-        # 2. Ушедшие на этой неделе
-        active_last_week = Attendance.objects.filter(
-            lesson__date__date__range=[week_ago, today - timedelta(days=1)],
-            status__in=['1', 'online']
-        ).values_list('student_id', flat=True).distinct()
-        
-        left_this_week = 0
-        if active_last_week:
-            still_active = Attendance.objects.filter(
-                lesson__date__date__range=[today - timedelta(days=6), today],
-                status__in=['1', 'online'],
-                student_id__in=active_last_week
-            ).distinct().count()
-            
-            left_this_week = len(active_last_week) - still_active
+        # 2. Ушедшие на этой неделе (по дате ухода)
+        left_this_week = CustomUser.objects.filter(
+            role="Student",
+            is_active=False,
+            left_date__range=[week_ago, today]
+        ).count()
+
         
         # 3. Новые ученики (используем date_joined или created_at)
         date_field = 'date_joined' if hasattr(CustomUser, 'date_joined') else 'created_at'
@@ -1446,7 +1439,7 @@ class LessonDetailView(generics.RetrieveAPIView):
 
 class HomeworkSubmissionView(generics.CreateAPIView):
     serializer_class = HomeworkSubmissionSerializer
-    permission_classes = [IsAdminOrStudent]
+    # permission_classes = [IsAdminTeacherOrReadOnlyStudent]
     
     def perform_create(self, serializer):
         lesson_id = self.kwargs.get('lesson_id')
@@ -1465,11 +1458,11 @@ class HomeworkSubmissionView(generics.CreateAPIView):
         )
 
 class MyHomeworkSubmissionsView(generics.ListAPIView):
-    serializer_class = HomeworkSubmissionSerializer
+    serializer_class = LessonSerializer
     permission_classes = [IsAdminTeacherOrReadOnlyStudent]
     
     def get_queryset(self):
-        return HomeworkSubmission.objects.filter(
+        return Lesson.objects.filter(
             student=self.request.user
         ).order_by('-submitted_at')
     
@@ -1513,7 +1506,7 @@ class HomeworkReviewView(generics.UpdateAPIView):
         
         # Проверяем, что статус изменяется на допустимый
         new_status = serializer.validated_data.get('status')
-        valid_statuses = ['reviewed', 'accepted', 'rejected']
+        valid_statuses = ['black', 'red', 'orange', "green"]
         if new_status and new_status not in valid_statuses:
             raise serializers.ValidationError(
                 {'status': f"Допустимые статусы: {', '.join(valid_statuses)}"}
@@ -1620,3 +1613,18 @@ class CurrentUserProfileView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
+    
+
+
+class StudentProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = StudentProfileSerializer
+    queryset = CustomUser.objects.filter(role='Student')
+    lookup_url_kwarg = 'student_id'
+    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
+
+
+class TeacherProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = TeacherProfileSerializer
+    queryset = CustomUser.objects.filter(role='Teacher')
+    lookup_url_kwarg = 'teacher_id'
+    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]

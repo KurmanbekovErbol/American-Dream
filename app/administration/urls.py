@@ -11,7 +11,7 @@ from app.administration.views import (
     StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView, 
     HomeworkListView, LessonDetailView, HomeworkSubmissionView, MyHomeworkSubmissionsView, TeacherHomeworkListView,
     HomeworkReviewView, StudentGradesView, PaymentNotificationViewSet, MonthlyIncomePDFView, TeacherWorkloadPDFView,
-    CurrentUserProfileView, DirectionViewSet
+    CurrentUserProfileView, DirectionViewSet, TeacherProfileView, StudentProfileView
     )
 
 router = DefaultRouter()
@@ -54,14 +54,16 @@ urlpatterns = [
     path('students/<int:student_id>/payments/', StudentPaymentsView.as_view(), name='student-payments'),
     path('admin-dashboard/', AdminDashboardView.as_view(), name='admin-dashboard'),
     path('homework/', HomeworkListView.as_view(), name='homework-list'),
-    path('lessons/<int:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
-    path('lessons/<int:lesson_id>/submit/', HomeworkSubmissionView.as_view(), name='homework-submit'),
+    path('lesson/<int:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
+    path('lesson/<int:lesson_id>/submit/', HomeworkSubmissionView.as_view(), name='homework-submit'),
     path('my-submissions/', MyHomeworkSubmissionsView.as_view(), name='my-homework-submissions'),
     path('teacher/homework/', TeacherHomeworkListView.as_view(), name='teacher-homework-list'),
     path('teacher/homework/<int:pk>/review/', HomeworkReviewView.as_view(), name='homework-review'),
     path('groups/<int:group_id>/grades/', StudentGradesView.as_view(), name='student-grades'),
     path("send-reports/", SendReportsView.as_view(), name="send-reports"),
     path('profile/', CurrentUserProfileView.as_view(), name='user-profile'),
+    path('students/<int:student_id>/profile/', StudentProfileView.as_view(), name='student-profile'),
+    path('teacher/<int:teacher_id>/profile/', TeacherProfileView.as_view(), name='teacher-profile'),
     path('popular-courses-pdf/', PopularCoursesPDFView.as_view(), name='popular-courses-pdf'),
     path('teacher-payments-pdf/', TeacherPaymentsPDFView.as_view(), name='teacher-payments-pdf'),
     path('incomes-pdf/', IncomePDFView.as_view(), name='income-pdf'),

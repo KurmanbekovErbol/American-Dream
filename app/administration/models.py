@@ -258,19 +258,19 @@ class HomeworkSubmission(models.Model):
     student = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
-        related_name='homework_submissions'
+        related_name='homework_submissions',
+        verbose_name="Ученик"
     )
-    project_links = models.URLField(default=list)  # Список ссылок
-    files = models.URLField(default=list)  # Список путей к файлам
-    submitted_at = models.DateTimeField(auto_now_add=True)
+    project_links = models.URLField(verbose_name="Ссылки на проект")
+    files = models.FileField(verbose_name="Файлы с домашним заданием", blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата отправки")
     status = models.CharField(
+        verbose_name="Статус",
         max_length=20,
         choices=STATUS_CHOICES,
         default='submitted'
     )
-    score = models.PositiveIntegerField(null=True, blank=True)
-    feedback = models.TextField(blank=True)
-
+    score = models.PositiveIntegerField(null=True, blank=True, verbose_name="Оценка")
     teacher_comment = models.TextField(blank=True, verbose_name="Комментарий преподавателя")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
     

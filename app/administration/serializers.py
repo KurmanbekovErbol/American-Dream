@@ -992,53 +992,21 @@ class DashboardStatsSerializer(serializers.Serializer):
 
 
 class HomeworkSubmissionSerializer(serializers.ModelSerializer):
-    lesson_title = serializers.CharField(source='lesson.title')
-    lesson_number = serializers.IntegerField(source='lesson.order')
-    course_number = serializers.SerializerMethodField()
-    month_number = serializers.SerializerMethodField()
-    month_title = serializers.SerializerMethodField()
-    student_name = serializers.SerializerMethodField()
-    group_name = serializers.SerializerMethodField()
 
     class Meta:
         model = HomeworkSubmission
         fields = [
             'id',
             'lesson',
-            'lesson_title',
-            'lesson_number',
-            'course_number',
-            'month_number',
-            'month_title',
             'student',
-            'student_name',
-            'group_name',
             'project_links',
             'files',
             'submitted_at',
             'status',
             'score',
-            'teacher_comment',
-            'feedback'
+            'teacher_comment'
         ]
         ref_name = "TeacherHomeworkSubmissionSerializer"
-
-    def get_course_number(self, obj):
-        return obj.lesson.month.course.course_number if hasattr(obj.lesson, 'month') else None
-
-    def get_month_number(self, obj):
-        return obj.lesson.month.month_number if hasattr(obj.lesson, 'month') else None
-
-    def get_month_title(self, obj):
-        return obj.lesson.month.title if hasattr(obj.lesson, 'month') else None
-
-    def get_student_name(self, obj):
-        return f"{obj.student.first_name} {obj.student.last_name}"
-
-    def get_group_name(self, obj):
-        if hasattr(obj.lesson, 'month') and hasattr(obj.lesson.month, 'course'):
-            return obj.lesson.month.course.group.group_name
-        return None
     
 
 
@@ -1075,6 +1043,99 @@ class ProfileSerializer(serializers.ModelSerializer):
             instance.set_password(password)
 
         # обновление аватарки
+        avatarka = validated_data.pop('avatarka', None)
+        if avatarka is not None:
+            instance.avatarka = avatarka
+
+        return super().update(instance, validated_data)
+
+    def get_avatarka_url(self, obj):
+        request = self.context.get('request')
+        if obj.avatarka and hasattr(obj.avatarka, 'url') and request:
+            return request.build_absolute_uri(obj.avatarka.url)
+        return None
+    
+
+
+class StudentProfileSerializer(serializers.ModelSerializer):
+    teacher = serializers.SerializerMethodField()
+    direction = serializers.SerializerMethodField()
+    course = serializers.SerializerMethodField()
+    password = serializers.CharField(write_only=True, required=False)
+    avatarka = serializers.FileField(required=False, allow_null=True)
+    avatarka_url = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id', 'first_name', 'last_name', 'username',
+            'telegram', 'phone', 'teacher', 'direction', 'course',
+            'password', 'avatarka', 'avatarka_url'
+        ]
+        extra_kwargs = {
+            'username': {'read_only': True}
+        }
+
+    def update(self, instance, validated_data):
+        # обработка пароля
+        password = validated_data.pop('password', None)
+        if password:
+            instance.set_password(password)
+
+        # обработка аватарки
+        avatarka = validated_data.pop('avatarka', None)
+        if avatarka is not None:
+            instance.avatarka = avatarka
+
+        return super().update(instance, validated_data)
+
+    def get_teacher(self, obj):
+        group = obj.student_groups.first()
+        return group.teacher.get_full_name() if group and group.teacher else None
+
+    def get_direction(self, obj):
+        group = obj.student_groups.first()
+        return group.direction.name if group and group.direction else None
+
+    def get_course(self, obj):
+        group = obj.student_groups.first()
+        if not group:
+            return None
+        latest_course = group.courses.order_by('-course_number').first()
+        return latest_course.course_number if latest_course else None
+
+    def get_avatarka_url(self, obj):
+        request = self.context.get('request')
+        if obj.avatarka and hasattr(obj.avatarka, 'url') and request:
+            return request.build_absolute_uri(obj.avatarka.url)
+        return None
+
+
+
+
+class TeacherProfileSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False)
+    avatarka = serializers.FileField(required=False, allow_null=True)
+    avatarka_url = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id', 'first_name', 'last_name', 'username',
+            'telegram', 'phone', 'age',
+            'password', 'avatarka', 'avatarka_url'
+        ]
+        extra_kwargs = {
+            'username': {'read_only': True}
+        }
+
+    def update(self, instance, validated_data):
+        # Обновляем пароль, если пришёл
+        password = validated_data.pop('password', None)
+        if password:
+            instance.set_password(password)
+
+        # Обновляем аватарку, если пришла
         avatarka = validated_data.pop('avatarka', None)
         if avatarka is not None:
             instance.avatarka = avatarka

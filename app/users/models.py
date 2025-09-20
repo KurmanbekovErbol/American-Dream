@@ -38,6 +38,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     date_joined = models.DateTimeField(default=timezone.now, verbose_name="Дата регистрации")
     avatarka = models.FileField(upload_to="avatarka/", verbose_name="Изображение Профиля Файл", blank=False, null=True)
     email = models.EmailField(unique=True, verbose_name="Email", blank=True, null=True)
+    left_date = models.DateTimeField(null=True, blank=True, verbose_name="Дата ухода")
 
 
     USERNAME_FIELD = "username"
@@ -54,3 +55,11 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def get_full_name(self):
         return f"{self.first_name} {self.last_name}".strip()
+    
+    def save(self, *args, **kwargs):
+        if not self.is_active and self.left_date is None:
+            self.left_date = timezone.now()
+        elif self.is_active:  # если вдруг снова активируем — очистим дату ухода
+            self.left_date = None
+        super().save(*args, **kwargs)
+
