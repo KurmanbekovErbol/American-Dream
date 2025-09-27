@@ -7,21 +7,21 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
     lesson_title = serializers.CharField(source='lesson.title')
     lesson_date = serializers.DateTimeField(source='lesson.date')
     month_number = serializers.IntegerField(source='lesson.month.month_number')
-    course_number = serializers.IntegerField(source='lesson.month.course.course_number')
+
 
     class Meta:
         model = Attendance
-        fields = ['id', 'status', 'lesson_title', 'lesson_date', 'month_number', 'course_number']
+        fields = ['id', 'status', 'lesson_title', 'lesson_date', 'month_number']
 
 class StudentHomeworkSerializer(serializers.ModelSerializer):
     lesson_title = serializers.CharField(source='lesson.title')
     lesson_date = serializers.DateTimeField(source='lesson.date')
     month_number = serializers.IntegerField(source='lesson.month.month_number')
-    course_number = serializers.IntegerField(source='lesson.month.course.course_number')
+
 
     class Meta:
         model = HomeworkSubmission
-        fields = ['id', 'score', 'lesson_title', 'lesson_date', 'month_number', 'course_number']
+        fields = ['id', 'score', 'lesson_title', 'lesson_date', 'month_number']
 
 class StudentProgressSerializer(serializers.ModelSerializer):
     attendances = serializers.SerializerMethodField()
@@ -35,7 +35,7 @@ class StudentProgressSerializer(serializers.ModelSerializer):
         student = self.context.get('student', obj)
         return StudentAttendanceSerializer(
             Attendance.objects.filter(student=student).select_related(
-                'lesson', 'lesson__month', 'lesson__month__course'
+                'lesson', 'lesson__month'
             ).order_by('lesson__date'),
             many=True
         ).data
@@ -44,7 +44,7 @@ class StudentProgressSerializer(serializers.ModelSerializer):
         student = self.context.get('student', obj)
         return StudentHomeworkSerializer(
             HomeworkSubmission.objects.filter(student=student).select_related(
-                'lesson', 'lesson__month', 'lesson__month__course'
+                'lesson', 'lesson__month'
             ).order_by('lesson__date'),
             many=True
         ).data

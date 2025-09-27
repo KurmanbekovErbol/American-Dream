@@ -2,7 +2,7 @@ from django.db import models
 from django.forms import ValidationError
 from app.users.models import CustomUser
 from django.utils import timezone
-from django.db.models import Sum
+from django.db.models import Sum, F, ExpressionWrapper, DecimalField
 
 
 class Direction(models.Model):
@@ -16,6 +16,10 @@ class Direction(models.Model):
         return self.name
 
 class Group(models.Model):
+    CREATION_TYPES = [
+        ('auto', 'Автоматически'),
+        ('manual', 'Вручную'),
+    ]
     FORMAT_CHOICES = [
         ('online', 'Онлайн'),
         ('offline', 'Оффлайн'),
@@ -53,6 +57,14 @@ class Group(models.Model):
         limit_choices_to={'role': 'Student'},
         verbose_name="Ученики"
     )
+
+    creation_type = models.CharField(
+        max_length=10,
+        choices=CREATION_TYPES,
+        default='manual',
+        verbose_name="Режим создания"
+    )
+
     @property
     def current_course(self):
         """Возвращает номер текущего курса группы"""
@@ -172,25 +184,10 @@ class Student(models.Model):
 
     def __str__(self):
         return f"{self.user.get_full_name()}"
-    
 
-
-
-# models.py
-class Course(models.Model):
-    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='courses')
-    course_number = models.PositiveIntegerField(verbose_name="Номер курса")
-    
-    class Meta:
-        verbose_name = "Курс"
-        verbose_name_plural = "Курсы"
-        unique_together = ('group', 'course_number')
-    
-    def __str__(self):
-        return f"Группа {self.group} - Курс {self.course_number}"
 
 class Months(models.Model):
-    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='months')
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='months')
     month_number = models.PositiveIntegerField(verbose_name="Номер месяца")
     title = models.CharField(max_length=255, verbose_name="Название месяца")
     description = models.TextField(verbose_name="Описание месяца")
@@ -199,10 +196,10 @@ class Months(models.Model):
         verbose_name = "Месяц курса"
         verbose_name_plural = "Месяцы курсов"
         ordering = ['month_number']
-        unique_together = ('course', 'month_number')
+        unique_together = ('group', 'month_number')
 
     def __str__(self):
-        return f"{self.course} - Месяц {self.month_number}"
+        return f"{self.group} - Месяц {self.month_number}"
 
 class Lesson(models.Model):
     month = models.ForeignKey(Months, on_delete=models.CASCADE, related_name='lessons')
@@ -224,11 +221,12 @@ class Lesson(models.Model):
         null=True,
         verbose_name="Файлы ДЗ"
     )
+
     homework_deadline = models.DateTimeField(null=True, blank=True, verbose_name='Срок выполнения')
     homework_description = models.TextField(blank=True, verbose_name='Описание задания')
     homework_requirements = models.TextField(blank=True, verbose_name='Требования к заданию')
 
-    
+
     class Meta:
         verbose_name = "Урок"
         verbose_name_plural = "Уроки"
@@ -237,7 +235,7 @@ class Lesson(models.Model):
 
     def __str__(self):
         return f"{self.month} - Урок {self.order}"
-    
+
 
 
 class HomeworkSubmission(models.Model):
@@ -251,22 +249,31 @@ class HomeworkSubmission(models.Model):
     lesson = models.ForeignKey(
         'Lesson',
         on_delete=models.CASCADE,
-        related_name='homework_submissions'
+        related_name='homework_submissions',
+        null=True, blank=True
     )
     student = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
         related_name='homework_submissions',
-        verbose_name="Ученик"
+        verbose_name="Ученик",
+        null=True, blank=True
     )
-    project_links = models.URLField(verbose_name="Ссылки на проект")
-    files = models.FileField(verbose_name="Файлы с домашним заданием", blank=True)
+    
+    # Ссылки на проект — JSONField, максимум 5 ссылок
+    project_links = models.JSONField(
+        verbose_name="Ссылки на проект",
+        default=list,
+        blank=True, null=True
+    )
+
+
     submitted_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата отправки")
     status = models.CharField(
         verbose_name="Статус",
         max_length=20,
         choices=STATUS_CHOICES,
-        default='submitted'
+        default='black'
     )
     score = models.PositiveIntegerField(null=True, blank=True, verbose_name="Оценка")
     teacher_comment = models.TextField(blank=True, verbose_name="Комментарий преподавателя")
@@ -277,9 +284,21 @@ class HomeworkSubmission(models.Model):
         verbose_name_plural = "Домашние задания"
         unique_together = ('lesson', 'student')
         ordering = ['-submitted_at']
+
     
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.student} - {self.lesson}"
+
+
+class HomeworkFile(models.Model):
+    submission = models.ForeignKey(HomeworkSubmission, related_name='homework_files', on_delete=models.CASCADE)
+    file = models.FileField(upload_to='homeworks/')
+
+
 
 
 class Attendance(models.Model):
@@ -306,32 +325,31 @@ class Attendance(models.Model):
 # Добавляем к существующим моделям
 
 class Income(models.Model):
-    """Модель для учета доходов"""
-    PAYMENT_METHODS = [
-        ('cash', 'Наличные'),
-        ('transfer', 'Перевод'),
-        ('online', 'Онлайн'),
-    ]
-    
-    
+    """Модель для учета доходов с раздельными типами оплаты"""
     direction = models.ForeignKey(Direction, on_delete=models.PROTECT, verbose_name="Направление")
-    amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Сумма")
+    cash_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Оплата наличными")
+    transfer_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Оплата переводом")
+    online_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Оплата онлайн")
     date = models.DateField(verbose_name="Дата")
-    payment_method = models.CharField(max_length=10, choices=PAYMENT_METHODS, verbose_name="Способ оплаты")
-    student = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True, 
-                              limit_choices_to={'role': 'Student'}, verbose_name="Студент")
+    student = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
+                                limit_choices_to={'role': 'Student'}, verbose_name="Студент")
     group = models.ForeignKey(Group, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Группа")
     comment = models.TextField(blank=True, verbose_name="Комментарий")
     discount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Скидка")
     is_full_payment = models.BooleanField(default=True, verbose_name="Полная оплата")
-    
+
     class Meta:
         verbose_name = "Доход"
         verbose_name_plural = "Доходы"
         ordering = ['-date']
-    
+
     def __str__(self):
-        return f"{self.direction.name} - {self.amount} сом ({self.date})"
+        return f"{self.direction.name} - Наличные: {self.cash_amount}, Перевод: {self.transfer_amount}, Онлайн: {self.online_amount} ({self.date})"
+
+    @property
+    def total_amount(self):
+        return (self.cash_amount or 0) + (self.transfer_amount or 0) + (self.online_amount or 0)
+
 
 class Expense(models.Model):
     """Модель для учета расходов"""
@@ -403,7 +421,7 @@ class Invoice(models.Model):
     student = models.ForeignKey(CustomUser, on_delete=models.CASCADE, 
                               limit_choices_to={'role': 'Student'},
                               verbose_name="Ученик")
-    course = models.ForeignKey(Course, on_delete=models.PROTECT, verbose_name="Курс")
+    months = models.ForeignKey(Months, on_delete=models.PROTECT, verbose_name="Месяц")
     amount = models.DecimalField(max_digits=10, decimal_places=2,
                                verbose_name="Сумма")
     discount = models.DecimalField(max_digits=10, decimal_places=2, default=0,
@@ -415,7 +433,7 @@ class Invoice(models.Model):
     comment = models.TextField(blank=True, verbose_name="Комментарий")
 
     def __str__(self):
-        return f"{self.student.get_full_name()} ({self.course})"
+        return f"{self.student.get_full_name()} ({self.months})"
 
     class Meta:
         verbose_name = "Счёт"
@@ -428,7 +446,11 @@ class Invoice(models.Model):
 
     @property
     def paid_amount(self):
-        return self.payments.aggregate(total=Sum('amount'))['total'] or 0
+        total_expr = ExpressionWrapper(
+            F('cash_amount') + F('transfer_amount') + F('online_amount'),
+            output_field=DecimalField()
+        )
+        return self.payments.aggregate(total=Sum(total_expr))['total'] or 0
 
     @property
     def balance(self):
@@ -441,7 +463,7 @@ class Invoice(models.Model):
             self.status = 'partial'
         else:
             self.status = 'pending'
-        self.save()
+        self.save(update_fields=['status'])
     
     def clean(self):
         if not self.student_id:
@@ -453,20 +475,26 @@ class Invoice(models.Model):
         self.full_clean()
         super().save(*args, **kwargs)
 
-class Payment(models.Model):
-    PAYMENT_TYPES = [
-        ('cash', 'Наличные'),
-        ('transfer', 'Перевод'),
-        ('online', 'Онлайн'),
-    ]
 
-    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE,
-                              related_name='payments',
-                              verbose_name="Счёт")
-    amount = models.DecimalField(max_digits=10, decimal_places=2,
-                               verbose_name="Сумма")
-    payment_type = models.CharField(max_length=10, choices=PAYMENT_TYPES,
-                                  verbose_name="Тип оплаты")
+class Payment(models.Model):
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.CASCADE,
+        related_name='payments',
+        verbose_name="Счёт"
+    )
+    cash_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        verbose_name="Оплата наличными"
+    )
+    transfer_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        verbose_name="Оплата переводом"
+    )
+    online_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        verbose_name="Оплата онлайн"
+    )
     date = models.DateTimeField(default=timezone.now, verbose_name="Дата оплаты")
     comment = models.TextField(blank=True, verbose_name="Комментарий")
 
@@ -476,11 +504,16 @@ class Payment(models.Model):
         ordering = ['-date']
 
     def __str__(self):
-        return f"{self.amount} - {self.get_payment_type_display()}"
+        return f"Наличные: {self.cash_amount}, Перевод: {self.transfer_amount}, Онлайн: {self.online_amount}"
+
+    @property
+    def total_amount(self):
+        return (self.cash_amount or 0) + (self.transfer_amount or 0) + (self.online_amount or 0)
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         self.invoice.update_status()
+
 
 
 
@@ -541,6 +574,7 @@ class Schedule(models.Model):
 
 
 
+
 class Lead(models.Model):
     STATUS_CHOICES = [
         ('new', 'Новые'),
@@ -595,3 +629,14 @@ class PaymentNotification(models.Model):
 
 
 
+class DiscountRegulation(models.Model):
+    discount_amount = models.CharField(max_length=255, verbose_name="Сумма скидки(сом)")
+    homework_points = models.CharField(max_length=255, verbose_name="Баллы за ДЗ")
+    min_attendance = models.CharField(max_length=255, verbose_name="Минимальное кол-во посещений")
+
+    class Meta:
+        verbose_name = "Регламент скидок"
+        verbose_name_plural = "Регламенты скидок"
+
+    def __str__(self):
+        return F"Сумма скидки {self.discount_amount} - Баллы за ДЗ {self.homework_points} - Минимальное кол-во посещений {self.min_attendance}"

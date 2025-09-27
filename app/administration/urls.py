@@ -8,10 +8,10 @@ from app.administration.views import (
     InvoiceViewSet, FinancialReportViewSet, GenerateFinancialReport, IncomePDFView, FinancialReportPDFView,
     CalculateTeacherPayments, ClassroomViewSet, ScheduleViewSet, DailyScheduleView, ExpensePDFView,
     ActiveStudentsAnalytics, MonthlyIncomeAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
-    StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView, 
-    HomeworkListView, LessonDetailView, HomeworkSubmissionView, MyHomeworkSubmissionsView, TeacherHomeworkListView,
-    HomeworkReviewView, StudentGradesView, PaymentNotificationViewSet, MonthlyIncomePDFView, TeacherWorkloadPDFView,
-    CurrentUserProfileView, DirectionViewSet, TeacherProfileView, StudentProfileView
+    StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView,
+    StudentGradesView, PaymentNotificationViewSet, MonthlyIncomePDFView, TeacherWorkloadPDFView,
+    CurrentUserProfileView, DirectionViewSet, TeacherProfileView, StudentProfileView, StudentHomeworkViewSet,
+    TeacherHomeworkViewSet, StudentProgressView, DiscountRegulationViewSet
     )
 
 router = DefaultRouter()
@@ -39,6 +39,8 @@ router.register(r'teacher-payments', TeacherPaymentViewSet, basename='teacher-pa
 router.register(r'classrooms', ClassroomViewSet, basename='classroom')
 router.register(r'schedule', ScheduleViewSet, basename='schedule')
 router.register(r'leads', LeadViewSet, basename='lead')
+router.register(r'homework', StudentHomeworkViewSet, basename='student-homework')
+router.register(r'discount-regulations', DiscountRegulationViewSet, basename='discountregulation')
 
 urlpatterns = [
     path('', include(router.urls)),
@@ -53,12 +55,9 @@ urlpatterns = [
     path('students/<int:student_id>/attendance/', StudentAttendanceView.as_view(), name='student-attendance'),
     path('students/<int:student_id>/payments/', StudentPaymentsView.as_view(), name='student-payments'),
     path('admin-dashboard/', AdminDashboardView.as_view(), name='admin-dashboard'),
-    path('homework/', HomeworkListView.as_view(), name='homework-list'),
-    path('lesson/<int:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
-    path('lesson/<int:lesson_id>/submit/', HomeworkSubmissionView.as_view(), name='homework-submit'),
-    path('my-submissions/', MyHomeworkSubmissionsView.as_view(), name='my-homework-submissions'),
-    path('teacher/homework/', TeacherHomeworkListView.as_view(), name='teacher-homework-list'),
-    path('teacher/homework/<int:pk>/review/', HomeworkReviewView.as_view(), name='homework-review'),
+    path('progress/', StudentProgressView.as_view(), name='progress-list'),
+    path("teacher/homework/", TeacherHomeworkViewSet.as_view({"get": "list", "patch": "partial_update", "put": "update"}), name='teacher-homework'),
+    path("teacher/homework/<int:pk>/", TeacherHomeworkViewSet.as_view({"get": "retrieve", "patch": "partial_update", "put": "update"}), name='teacher-homework-checking'),
     path('groups/<int:group_id>/grades/', StudentGradesView.as_view(), name='student-grades'),
     path("send-reports/", SendReportsView.as_view(), name="send-reports"),
     path('profile/', CurrentUserProfileView.as_view(), name='user-profile'),

@@ -1,28 +1,32 @@
-from rest_framework import viewsets, generics, status, permissions
+from rest_framework import viewsets, generics, status, permissions, mixins
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import permissions
 from rest_framework.permissions import IsAuthenticated
-
+from rest_framework.exceptions import PermissionDenied
 from django.db.models import Sum, Count
 from datetime import timedelta
+from django.db.models.functions import Coalesce
+from decimal import Decimal
 from django.utils import timezone
 from rest_framework.decorators import action
 from django.http import HttpResponse
 import datetime
-from django.db.models import Count, Sum, Avg, Q
+from django.db.models import Count, Sum, Avg, Q, ExpressionWrapper, F, DecimalField, FloatField
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import get_object_or_404
 from app.administration.models import (
     Direction, Group, Teacher, Student, Lesson, Attendance, Payment, Months, Income, Expense, 
     TeacherPayment, Invoice, FinancialReport, Schedule, Classroom, Lead, HomeworkSubmission,
-    PaymentNotification
+    PaymentNotification, DiscountRegulation
     )
 from app.administration.serializers import (
     DirectionSerializer, GroupSerializer, GroupCreateSerializer, TeacherCreateSerializer, TeacherSerializer, StudentCreateSerializer, StudentSerializer, LessonSerializer, AttendanceSerializer, 
     PaymentSerializer, GroupDashboardSerializer, MonthsSerializer, GroupTableSerializer, StudentTableSerializer, TeacherTableSerializer, TeacherPaymentSerializer, ExpenseSerializer, IncomeSerializer, FinancialReportSerializer, InvoiceSerializer,
     ScheduleSerializer, ClassroomSerializer, DailyScheduleSerializer, ScheduleListSerializer, ActiveStudentsSerializer, PopularCoursesSerializer,
     TeacherWorkloadSerializer, MonthlyIncomeSerializer, StudentAttendanceSerializer, PaymentHistorySerializer, LeadSerializer, LeadStatusUpdateSerializer, DashboardStatsSerializer,
-    LessonSerializer, LessonDetailSerializer, HomeworkListSerializer, HomeworkSubmissionSerializer, PaymentNotificationSerializer, ProfileSerializer,
-    TeacherProfileSerializer, StudentProfileSerializer
+    LessonSerializer, HomeworkSubmissionSerializer, PaymentNotificationSerializer, ProfileSerializer,
+    TeacherProfileSerializer, StudentProfileSerializer, StudentHomeworkSerializer, HomeworkSubmissionUpdateSerializer, StudentProgressSerializer, DiscountRegulationSerializer
     )
 from app.users.models import CustomUser
 from app.users.permissions import (
@@ -101,10 +105,27 @@ class GroupViewSet(viewsets.ModelViewSet):
             except (CustomUser.DoesNotExist, Student.DoesNotExist):
                 continue
 
+        if group.creation_type == 'auto':
+            for month_number in range(1, group.duration_months + 1):
+                month = Months.objects.create(
+                    group=group,
+                    month_number=month_number,
+                    title=f"Месяц {month_number}",
+                    description=f"Автоматически созданный месяц {month_number}"
+                )
+                for lesson_number in range(1, group.lessons_per_month + 1):
+                    Lesson.objects.create(
+                        month=month,
+                        order=lesson_number,
+                        title=f"Урок {lesson_number}",
+                        description=f"Автоматически созданный урок {lesson_number}"
+                    )
+
+
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
     
+
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
@@ -265,10 +286,9 @@ class GroupDashboardView(generics.RetrieveAPIView):
         'direction', 'teacher'
     ).prefetch_related(
         'students',
-        'courses',
-        'courses__months',
-        'courses__months__lessons',
-        'courses__months__lessons__attendances',
+        'months',
+        'months__lessons',
+        'months__lessons__attendances',
     )
     serializer_class = GroupDashboardSerializer
     lookup_field = 'id'
@@ -284,17 +304,10 @@ class GroupDashboardView(generics.RetrieveAPIView):
                 'direction': instance.direction.name if instance.direction else None,
                 'teacher': instance.teacher.get_full_name() if instance.teacher else None
             },
-            'courses': [
-                {
-                    'id': course.id,
-                    'course_number': course.course_number,
-                    'months': MonthsSerializer(
-                        course.months.all().order_by('month_number'),
-                        many=True
-                    ).data
-                }
-                for course in instance.courses.all().order_by('course_number')
-            ],
+            'months': MonthsSerializer(
+                instance.months.all().order_by('month_number'),
+                many=True
+            ).data,
             'students': serializer.data['students'],
             'tabs': {
                 'data': 'Основные данные',
@@ -315,11 +328,19 @@ class GroupDashboardView(generics.RetrieveAPIView):
 
 # views.py
 class GroupTableViewSet(viewsets.ReadOnlyModelViewSet):
-    """Viewset for displaying group table with month of study"""
-    queryset = Group.objects.all().select_related('direction')
+    """Viewset для отображения таблицы групп (с месяцем обучения)"""
     serializer_class = GroupTableSerializer
     filterset_fields = ['direction__name', 'group_name']
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrTeacher]  # если у тебя есть кастомные права
+
+    def get_queryset(self):
+        qs = Group.objects.all().select_related('direction')
+
+        user = self.request.user
+        if user.role == "Teacher":
+            qs = qs.filter(teacher=user)  # только его группы
+
+        return qs
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -328,7 +349,8 @@ class GroupTableViewSet(viewsets.ReadOnlyModelViewSet):
         if search_query:
             queryset = queryset.filter(
                 Q(group_name__icontains=search_query) |
-                Q(direction__name__icontains=search_query))
+                Q(direction__name__icontains=search_query)
+            )
         
         direction = request.query_params.get('direction')
         if direction:
@@ -350,9 +372,6 @@ class GroupTableViewSet(viewsets.ReadOnlyModelViewSet):
         }
         
         return Response(response_data)
-    
-
-
 
 
 # views.py
@@ -476,18 +495,13 @@ class TeacherTableViewSet(viewsets.ReadOnlyModelViewSet):
         
         return Response(response_data)
     
-
-
-
-
-
 # Добавляем к существующим представлениям
 
 class InvoiceViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrManager, IsAdmin]
-    queryset = Invoice.objects.all().select_related('student', 'course')
+    queryset = Invoice.objects.all().select_related('student', 'months')
     serializer_class = InvoiceSerializer
-    filterset_fields = ['student', 'course', 'status', 'due_date']
+    filterset_fields = ['student', 'months', 'status', 'due_date']
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -548,7 +562,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
 class IncomeViewSet(viewsets.ModelViewSet):
     queryset = Income.objects.all().select_related('direction', 'student', 'group')
     serializer_class = IncomeSerializer
-    filterset_fields = ['direction', 'payment_method', 'date', 'is_full_payment']
+    filterset_fields = ['direction', 'date', 'is_full_payment']
     permission_classes = [IsAdminOrManager, IsAdmin]
 
 
@@ -559,7 +573,15 @@ class IncomePDFView(APIView):
         incomes = Income.objects.all().select_related('direction', 'student', 'group')
 
         # Можно посчитать общую сумму
-        total_amount = incomes.aggregate(Sum("amount"))["amount__sum"] or 0
+
+        total_amount = Income.objects.aggregate(
+            total=Sum(
+                ExpressionWrapper(
+                    F('cash_amount') + F('transfer_amount') + F('online_amount'),
+                    output_field=DecimalField()
+                )
+            )
+        )['total'] or 0
 
         # Контекст для шаблона
         context = {
@@ -738,7 +760,7 @@ class CalculateTeacherPayments(APIView):
                 
                 for group in groups:
                     lessons_count = Lesson.objects.filter(
-                        month__course__group=group,
+                        month__group=group,
                         date__range=[start_date, end_date]
                     ).count()
                     
@@ -797,7 +819,7 @@ class ClassroomViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdmin]
 
 class ScheduleViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
     queryset = Schedule.objects.all().select_related(
         'classroom', 'group', 'group__direction', 'teacher'
     )
@@ -816,6 +838,52 @@ class ScheduleViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(date=date)
             
         return queryset.order_by('classroom', 'start_time')
+    
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def next_for_student(self, request):
+        user = request.user
+        if user.role != "Student":
+            return Response({"detail": "Только для студентов"}, status=403)
+
+        now = timezone.now()
+        today = now.date()
+        current_time = now.time()
+
+        groups = user.student_groups.all()
+        if not groups.exists():
+            return Response({"detail": "Вы не состоите ни в одной группе"}, status=404)
+
+        # 1️⃣ Ищем ближайшее занятие сегодня (после текущего времени)
+        schedule_today = (
+            Schedule.objects.filter(
+                group__in=groups,
+                date=today,
+                start_time__gt=current_time
+            )
+            .select_related("classroom", "group", "teacher", "group__direction")
+            .order_by("start_time")
+            .first()
+        )
+
+        if schedule_today:
+            return Response(ScheduleListSerializer(schedule_today).data)
+
+        # 2️⃣ Если на сегодня больше нет — ищем ближайшее в будущем
+        schedule_future = (
+            Schedule.objects.filter(
+                group__in=groups,
+                date__gt=today
+            )
+            .select_related("classroom", "group", "teacher", "group__direction")
+            .order_by("date", "start_time")
+            .first()
+        )
+
+        if schedule_future:
+            return Response(ScheduleListSerializer(schedule_future).data)
+
+        return Response({"detail": "Нет ближайших занятий"}, status=404)
     
 
 class DailyScheduleView(APIView):
@@ -894,6 +962,7 @@ class ActiveStudentsAnalytics(APIView):
 
 class MonthlyIncomeAnalytics(APIView):
     permission_classes = [IsAdmin]
+
     def get(self, request):
         # Получаем год из параметра запроса (по умолчанию текущий год)
         year = request.query_params.get('year', timezone.now().year)
@@ -907,15 +976,23 @@ class MonthlyIncomeAnalytics(APIView):
             'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
         ]
 
-        # Получаем доходы по месяцам для указанного года
+        # Создаем выражение для суммы всех трёх типов оплаты
+        total_expr = ExpressionWrapper(
+            F('cash_amount') + F('transfer_amount') + F('online_amount'),
+            output_field=DecimalField()
+        )
+
+        # Получаем доходы по месяцам
         payments = Payment.objects.filter(
             date__year=year
+        ).annotate(
+            total_amount=total_expr
         ).values('date__month').annotate(
-            total=Sum('amount')
+            monthly_total=Sum('total_amount')
         ).order_by('date__month')
 
         # Создаем словарь для быстрого доступа к данным по месяцам
-        month_data = {p['date__month']: p['total'] for p in payments}
+        month_data = {p['date__month']: p['monthly_total'] for p in payments}
 
         # Формируем результат для всех месяцев
         result = []
@@ -924,12 +1001,13 @@ class MonthlyIncomeAnalytics(APIView):
                 'year': year,
                 'month': months_ru[month_num - 1],
                 'month_number': month_num,
-                'income': str(month_data.get(month_num, 0))
+                'income': float(month_data.get(month_num, 0))
             })
 
-                
         return Response(result)
     
+
+from django.db.models import F, Sum, ExpressionWrapper, DecimalField
 
 class MonthlyIncomePDFView(APIView):
     permission_classes = [IsAdmin]
@@ -947,9 +1025,17 @@ class MonthlyIncomePDFView(APIView):
             'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
         ]
 
+        # Общая сумма платежа = cash + transfer + online
+        total_expr = ExpressionWrapper(
+            F("cash_amount") + F("transfer_amount") + F("online_amount"),
+            output_field=DecimalField()
+        )
+
         # Доходы по месяцам
-        payments = Payment.objects.filter(date__year=year).values("date__month").annotate(
-            total=Sum("amount")
+        payments = (
+            Payment.objects.filter(date__year=year)
+            .values("date__month")
+            .annotate(total=Sum(total_expr))
         )
 
         month_data = {p['date__month']: p['total'] for p in payments}
@@ -972,13 +1058,14 @@ class MonthlyIncomePDFView(APIView):
             "total_year": total_year,
         }
 
-        # Генерация PDF через BytesIO
+        # Генерация PDF
         pdf_file = render_to_pdf("reports/monthly_income.html", context)
 
         response = HttpResponse(pdf_file.read(), content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="monthly_income_{year}.pdf"'
         pdf_file.close()
         return response
+
 
 
 class TeacherWorkloadAnalytics(APIView):
@@ -1019,9 +1106,14 @@ class TeacherWorkloadAnalytics(APIView):
 
                 # 4. Доход по платежам студентов этих групп
                 group_income = Payment.objects.filter(
-                    invoice__course__group__in=teacher_groups,
+                    invoice__months__group__in=teacher_groups,
                     date__range=[start_date, end_date]
-                ).aggregate(total=Sum('amount'))['total'] or 0
+                ).aggregate(
+                    total=Sum(
+                        F('cash_amount') + F('transfer_amount') + F('online_amount'),
+                        output_field=FloatField()
+                    )
+                )['total'] or 0
 
                 if lessons_count:  # Добавляем только преподавателей с занятиями
                     result.append({
@@ -1060,6 +1152,12 @@ class TeacherWorkloadPDFView(APIView):
         teachers = CustomUser.objects.filter(role='Teacher', is_active=True)
         result = []
 
+        # выражение для суммы платежа
+        total_expr = ExpressionWrapper(
+            F("cash_amount") + F("transfer_amount") + F("online_amount"),
+            output_field=DecimalField()
+        )
+
         for teacher in teachers:
             # 1. Количество занятий
             lessons_count = Schedule.objects.filter(
@@ -1076,10 +1174,13 @@ class TeacherWorkloadPDFView(APIView):
             ).distinct().count()
 
             # 4. Доход по группам
-            group_income = Payment.objects.filter(
-                invoice__course__group__in=teacher_groups,
-                date__range=[start_date, end_date]
-            ).aggregate(total=Sum('amount'))['total'] or 0
+            group_income = (
+                Payment.objects.filter(
+                    invoice__months__group__in=teacher_groups,
+                    date__range=[start_date, end_date]
+                )
+                .aggregate(total=Sum(total_expr))['total'] or 0
+            )
 
             if lessons_count:
                 result.append({
@@ -1111,6 +1212,7 @@ class TeacherWorkloadPDFView(APIView):
 
 class PopularCoursesAnalytics(APIView):
     permission_classes = [IsAdmin]
+
     def get(self, request):
         try:
             # Получаем направления с подсчетом студентов и групп
@@ -1118,14 +1220,18 @@ class PopularCoursesAnalytics(APIView):
                 num_students=Count('groups__students', distinct=True),
                 num_groups=Count('groups', distinct=True)
             ).filter(num_students__gt=0).order_by('-num_students')
-            
+
             result = []
             for rank, direction in enumerate(directions, start=1):
-                # Для каждого направления отдельно считаем доход
+                # Считаем доход для каждого направления, суммируя все виды оплаты
                 income = Payment.objects.filter(
-                    invoice__course__group__direction=direction
-                ).aggregate(total=Sum('amount'))['total'] or 0
-                
+                    invoice__months__group__direction=direction
+                ).aggregate(
+                    total=Sum(
+                        F('cash_amount') + F('transfer_amount') + F('online_amount')
+                    )
+                )['total'] or 0
+
                 result.append({
                     'rank': rank,
                     'course': direction.name,
@@ -1133,15 +1239,16 @@ class PopularCoursesAnalytics(APIView):
                     'groups_count': direction.num_groups,
                     'income': float(income)
                 })
-            
+
             return Response(result)
-            
+
         except Exception as e:
             return Response(
                 {'error': str(e)},
                 status=500
             )
         
+
 
 
 class PopularCoursesPDFView(APIView):
@@ -1157,8 +1264,19 @@ class PopularCoursesPDFView(APIView):
             result = []
             for rank, direction in enumerate(directions, start=1):
                 income = Payment.objects.filter(
-                    invoice__course__group__direction=direction
-                ).aggregate(total=Sum('amount'))['total'] or 0
+                    invoice__months__group__direction=direction
+                ).aggregate(
+                    total=Coalesce(
+                        Sum(
+                            ExpressionWrapper(
+                                F('cash_amount') + F('transfer_amount') + F('online_amount'),
+                                output_field=DecimalField()  # здесь явно указываем DecimalField
+                            )
+                        ),
+                        0,  # по умолчанию Coalesce возвращает IntegerField для 0, поэтому оборачиваем в Decimal
+                        output_field=DecimalField()
+                    )
+                )['total'] or 0
 
                 result.append({
                     'rank': rank,
@@ -1168,11 +1286,10 @@ class PopularCoursesPDFView(APIView):
                     'income': float(income)
                 })
 
-            context = {
-                'courses': result
-            }
-
+            context = {'courses': result}
             pdf_file = render_to_pdf("reports/popular_courses.html", context)
+            if not pdf_file:
+                return HttpResponse("Ошибка при генерации PDF", status=500)
 
             response = HttpResponse(pdf_file.read(), content_type="application/pdf")
             response['Content-Disposition'] = 'attachment; filename="popular_courses.pdf"'
@@ -1180,8 +1297,7 @@ class PopularCoursesPDFView(APIView):
             return response
 
         except Exception as e:
-            return HttpResponse(f"Ошибка: {e}", status=500)
-
+            return HttpResponse(f"Ошибка при формировании отчёта: {e}", status=500)
 
 
 
@@ -1193,8 +1309,8 @@ class StudentAttendanceView(APIView):
             attendances = Attendance.objects.filter(
                 student_id=student_id
             ).select_related(
-                'lesson__month__course__group__direction',
-                'lesson__month__course__group__teacher'
+                'lesson__month__group__direction',
+                'lesson__month__group__teacher'
             ).order_by('-lesson__date')
             
             if not attendances.exists():
@@ -1210,13 +1326,13 @@ class StudentAttendanceView(APIView):
                     'id': att.id,
                     'status': att.status,
                     'status_display': att.get_status_display(),
-                    'group': att.lesson.month.course.group.group_name,
-                    'subject': att.lesson.month.course.group.direction.name
+                    'group': att.lesson.month.group.group_name,
+                    'subject': att.lesson.month.group.direction.name
                 }
                 
                 # 1. Пытаемся получить дату из расписания
                 schedule = Schedule.objects.filter(
-                    group=att.lesson.month.course.group,
+                    group=att.lesson.month.group,
                     date=att.lesson.date
                 ).first()
                 
@@ -1228,8 +1344,8 @@ class StudentAttendanceView(APIView):
                     attendance_data['date'] = att.lesson.date.strftime('%d.%m.%Y') if att.lesson.date else None
                     
                     # 3. Преподавателя берем из группы
-                    if att.lesson.month.course.group.teacher:
-                        attendance_data['teacher'] = att.lesson.month.course.group.teacher.get_full_name()
+                    if att.lesson.month.group.teacher:
+                        attendance_data['teacher'] = att.lesson.month.group.teacher.get_full_name()
                     else:
                         attendance_data['teacher'] = None
                 
@@ -1245,21 +1361,45 @@ class StudentAttendanceView(APIView):
 
 class StudentPaymentsView(APIView):
     permission_classes = [IsAdminOrManager, IsAdmin]
+
     def get(self, request, student_id):
         payments = Payment.objects.filter(
             invoice__student_id=student_id
         ).select_related('invoice').order_by('-date')
         
-        data = [{
-            'id': pay.id,
-            'date': pay.date.strftime('%d.%m.%Y'),
-            'amount': str(pay.amount),
-            'payment_type': pay.get_payment_type_display(),
-            'comment': pay.comment
-        } for pay in payments]
+        data = []
+        for pay in payments:
+            # Добавляем отдельные поля оплаты, если есть
+            if pay.cash_amount > 0:
+                data.append({
+                    'id': pay.id,
+                    'date': pay.date.strftime('%d.%m.%Y'),
+                    'amount': str(pay.cash_amount),
+                    'payment_type': 'Наличные',
+                    'comment': pay.comment
+                })
+            if pay.transfer_amount > 0:
+                data.append({
+                    'id': pay.id,
+                    'date': pay.date.strftime('%d.%m.%Y'),
+                    'amount': str(pay.transfer_amount),
+                    'payment_type': 'Перевод',
+                    'comment': pay.comment
+                })
+            if pay.online_amount > 0:
+                data.append({
+                    'id': pay.id,
+                    'date': pay.date.strftime('%d.%m.%Y'),
+                    'amount': str(pay.online_amount),
+                    'payment_type': 'Онлайн',
+                    'comment': pay.comment
+                })
+        
+        # Можно отсортировать по дате, если нужно
+        data.sort(key=lambda x: x['date'], reverse=True)
         
         return Response(data)
-    
+
 
 
 class LeadViewSet(viewsets.ModelViewSet):
@@ -1314,208 +1454,154 @@ class LeadViewSet(viewsets.ModelViewSet):
         return Response(stats)
     
 
-
 class AdminDashboardView(APIView):
     permission_classes = [IsAdminOrManager, IsAdmin]
-    
+
     def get(self, request):
         now = timezone.now()
         today = now.date()
-        
-        # 1. Новые ученики
-        new_students_data = {
-            'new_students_24h': CustomUser.objects.filter(
-                role='Student',
-                date_joined__gte=now - timedelta(hours=24))
-                .count(),
-            'new_students_week': CustomUser.objects.filter(
-                role='Student',
-                date_joined__gte=today - timedelta(days=7))
-                .count(),
-            'new_students_month': CustomUser.objects.filter(
-                role='Student',
-                date_joined__gte=today - timedelta(days=30))
-                .count(),
-            'new_students_year': CustomUser.objects.filter(
-                role='Student',
-                date_joined__gte=today - timedelta(days=365))
-                .count(),
-        }
-        
-        # 2. Последние лиды
-        recent_invoices = Lead.objects.order_by('-created_at')[:2].values(
-            'name', 'phone', 'email', 'course', 'status', 'comment', 'created_at'
-        )
 
-        # 3. Оплаты
-        payments_today = Payment.objects.filter(
-            date__date=today
-        ).aggregate(total=Sum('amount'))['total'] or 0
-        
-        payments_by_method = Payment.objects.filter(
-            date__date=today
-        ).values('payment_type').annotate(
-            total=Sum('amount')
-        )
-        
-        payments_data = {
-            'payments_today': {'amount': payments_today},
-            'payments_by_method': {
-                method['payment_type']: method['total'] 
-                for method in payments_by_method
+        try:
+            # 1. Новые ученики
+            new_students_data = {
+                'new_students_24h': CustomUser.objects.filter(
+                    role='Student',
+                    date_joined__gte=now - timedelta(hours=24)
+                ).count(),
+                'new_students_week': CustomUser.objects.filter(
+                    role='Student',
+                    date_joined__gte=today - timedelta(days=7)
+                ).count(),
+                'new_students_month': CustomUser.objects.filter(
+                    role='Student',
+                    date_joined__gte=today - timedelta(days=30)
+                ).count(),
+                'new_students_year': CustomUser.objects.filter(
+                    role='Student',
+                    date_joined__gte=today - timedelta(days=365)
+                ).count(),
             }
-        }
-        
-        # 4. Предстоящие занятия
-        upcoming_classes = Schedule.objects.filter(
-            date=today,
-            start_time__gte=now.time()
-        ).order_by('start_time').select_related(
-            'group', 'teacher'
-        )[:3].values(
-            'group__direction__name',
-            'group__group_name',
-            'teacher__first_name',
-            'teacher__last_name',
-            'start_time'
-        )
-        
-        # 5. Посещаемость (обновленная логика)
-        attendances_today = Attendance.objects.filter(
-            lesson__date__date=today
-        )
-        
-        total_lessons = Lesson.objects.filter(
-            date__date=today
-        ).count()
-        
-        attendance_stats = {
-            'present': attendances_today.filter(status='1').count(),
-            'online': attendances_today.filter(status='online').count(),
-            'absent': attendances_today.filter(status='0').count(),
-        }
-        
-        total_attendances = sum(attendance_stats.values())
-        
-        attendance_data = {
-            'total_lessons': total_lessons,
-            'present': attendance_stats['present'],
-            'present_percent': round(attendance_stats['present'] / total_attendances * 100) if total_attendances else 0,
-            'online': attendance_stats['online'],
-            'online_percent': round(attendance_stats['online'] / total_attendances * 100) if total_attendances else 0,
-            'absent': attendance_stats['absent'],
-            'absent_percent': round(attendance_stats['absent'] / total_attendances * 100) if total_attendances else 0,
-            'total_students': CustomUser.objects.filter(role='Student', is_active=True).count()
-        }
-        
-        data = {
-            'new_students_24h': new_students_data['new_students_24h'],
-            'new_students_week': new_students_data['new_students_week'],
-            'new_students_month': new_students_data['new_students_month'],
-            'new_students_year': new_students_data['new_students_year'],
-            'recent_invoices': recent_invoices,
-            'payments_today': payments_data['payments_today'],
-            'payments_by_method': payments_data['payments_by_method'],
-            'upcoming_classes': upcoming_classes,
-            'attendance_stats': attendance_data
-        }
-        
-        serializer = DashboardStatsSerializer(data)
-        return Response(serializer.data)
-    
 
-class HomeworkListView(generics.ListAPIView):
-    serializer_class = HomeworkListSerializer
-    permission_classes = [IsAdminTeacherOrReadOnlyStudent]
-    
-    def get_queryset(self):
-        # Получаем уроки, где есть домашние задания
-        return Lesson.objects.exclude(homework_description='').order_by('-date')
-
-class LessonDetailView(generics.RetrieveAPIView):
-    queryset = Lesson.objects.all()
-    serializer_class = LessonDetailSerializer
-    permission_classes = [IsAdminTeacherOrReadOnlyStudent]
-
-class HomeworkSubmissionView(generics.CreateAPIView):
-    serializer_class = HomeworkSubmissionSerializer
-    # permission_classes = [IsAdminTeacherOrReadOnlyStudent]
-    
-    def perform_create(self, serializer):
-        lesson_id = self.kwargs.get('lesson_id')
-        lesson = generics.get_object_or_404(Lesson, pk=lesson_id)
-        serializer.save(student=self.request.user, lesson=lesson)
-    
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return Response(
-            serializer.data,
-            status=status.HTTP_201_CREATED,
-            headers=headers
-        )
-
-class MyHomeworkSubmissionsView(generics.ListAPIView):
-    serializer_class = LessonSerializer
-    permission_classes = [IsAdminTeacherOrReadOnlyStudent]
-    
-    def get_queryset(self):
-        return Lesson.objects.filter(
-            student=self.request.user
-        ).order_by('-submitted_at')
-    
-
-
-
-
-class TeacherHomeworkListView(generics.ListAPIView):
-    serializer_class = HomeworkSubmissionSerializer
-    permission_classes = [IsAdminTeacherOrReadOnlyStudent]
-    
-    def get_queryset(self):
-        # Получаем группы, где текущий пользователь является преподавателем
-        teacher_groups = Group.objects.filter(teacher=self.request.user)
-        
-        # Получаем ДЗ из этих групп
-        return HomeworkSubmission.objects.filter(
-            lesson__month__course__group__in=teacher_groups
-        ).select_related(
-            'student',
-            'lesson',
-            'lesson__month',
-            'lesson__month__course',
-            'lesson__month__course__group'
-        ).order_by('-submitted_at')
-
-class HomeworkReviewView(generics.UpdateAPIView):
-    queryset = HomeworkSubmission.objects.all()
-    serializer_class = HomeworkSubmissionSerializer
-    permission_classes = [IsAdminTeacherOrReadOnlyStudent]
-
-    def get_object(self):
-        obj = super().get_object()
-        # Проверяем, что текущий пользователь - преподаватель группы этого ДЗ
-        if not obj.lesson.month.course.group.teacher == self.request.user:
-            raise PermissionDenied("Вы не являетесь преподавателем этой группы")
-        return obj
-
-    def perform_update(self, serializer):
-        instance = self.get_object()
-        
-        # Проверяем, что статус изменяется на допустимый
-        new_status = serializer.validated_data.get('status')
-        valid_statuses = ['black', 'red', 'orange', "green"]
-        if new_status and new_status not in valid_statuses:
-            raise serializers.ValidationError(
-                {'status': f"Допустимые статусы: {', '.join(valid_statuses)}"}
+            # 2. Последние лиды
+            recent_invoices = Lead.objects.order_by('-created_at')[:2].values(
+                'name', 'phone', 'email', 'course', 'status', 'comment', 'created_at'
             )
-        
-        # Сохраняем обновленные данные
-        serializer.save()
 
+            # 3. Оплаты - ИСПРАВЛЕННАЯ ЧАСТЬ
+            # Создаем выражение с правильным output_field
+            total_expression = ExpressionWrapper(
+                F('cash_amount') + F('transfer_amount') + F('online_amount'),
+                output_field=DecimalField(max_digits=10, decimal_places=2)
+            )
 
+            # Агрегация с использованием выражения
+            payments_today_agg = Payment.objects.filter(date__date=today).aggregate(
+                total=Coalesce(Sum(total_expression), Decimal('0.00'), output_field=DecimalField())
+            )
+            payments_today = payments_today_agg['total']
+
+            # Альтернативный подход - проще и надежнее:
+            payments_today_simple = Payment.objects.filter(date__date=today).aggregate(
+                total=Coalesce(
+                    Sum('cash_amount') + Sum('transfer_amount') + Sum('online_amount'),
+                    Decimal('0.00'),
+                    output_field=DecimalField(max_digits=10, decimal_places=2)
+                )
+            )['total']
+
+            # Используем альтернативный подход для надежности
+            payments_today = payments_today_simple
+
+            # Суммы по способам оплаты
+            payments_by_method = Payment.objects.filter(date__date=today).aggregate(
+                cash_total=Coalesce(Sum('cash_amount', output_field=DecimalField(max_digits=10, decimal_places=2)), Decimal('0.00')),
+                transfer_total=Coalesce(Sum('transfer_amount', output_field=DecimalField(max_digits=10, decimal_places=2)), Decimal('0.00')),
+                online_total=Coalesce(Sum('online_amount', output_field=DecimalField(max_digits=10, decimal_places=2)), Decimal('0.00')),
+            )
+
+            payments_data = {
+                'payments_today': {'amount': float(payments_today)},  # Конвертируем в float для JSON
+                'payments_by_method': {
+                    'cash_total': float(payments_by_method['cash_total']),
+                    'transfer_total': float(payments_by_method['transfer_total']),
+                    'online_total': float(payments_by_method['online_total'])
+                }
+            }
+
+            # 4. Предстоящие занятия
+            upcoming_classes = Schedule.objects.filter(
+                date=today,
+                start_time__gte=now.time()
+            ).order_by('start_time').select_related(
+                'group', 'teacher'
+            )[:3].values(
+                'group__direction__name',
+                'group__group_name',
+                'teacher__first_name',
+                'teacher__last_name',
+                'start_time'
+            )
+
+            # 5. Посещаемость
+            attendances_today = Attendance.objects.filter(
+                lesson__date__date=today
+            )
+
+            total_lessons = Lesson.objects.filter(
+                date__date=today
+            ).count()
+
+            attendance_stats = {
+                'present': attendances_today.filter(status='1').count(),
+                'online': attendances_today.filter(status='online').count(),
+                'absent': attendances_today.filter(status='0').count(),
+            }
+
+            total_attendances = sum(attendance_stats.values())
+
+            # Защита от деления на ноль
+            total_attendances = total_attendances if total_attendances > 0 else 1
+
+            attendance_data = {
+                'total_lessons': total_lessons,
+                'present': attendance_stats['present'],
+                'present_percent': round(attendance_stats['present'] / total_attendances * 100) if total_attendances else 0,
+                'online': attendance_stats['online'],
+                'online_percent': round(attendance_stats['online'] / total_attendances * 100) if total_attendances else 0,
+                'absent': attendance_stats['absent'],
+                'absent_percent': round(attendance_stats['absent'] / total_attendances * 100) if total_attendances else 0,
+                'total_students': CustomUser.objects.filter(role='Student', is_active=True).count()
+            }
+
+            data = {
+                'new_students_24h': new_students_data['new_students_24h'],
+                'new_students_week': new_students_data['new_students_week'],
+                'new_students_month': new_students_data['new_students_month'],
+                'new_students_year': new_students_data['new_students_year'],
+                'recent_invoices': list(recent_invoices),  # Конвертируем в list
+                'payments_today': payments_data['payments_today'],
+                'payments_by_method': payments_data['payments_by_method'],
+                'upcoming_classes': list(upcoming_classes),  # Конвертируем в list
+                'attendance_stats': attendance_data
+            }
+
+            # Если у вас есть сериализатор DashboardStatsSerializer
+            # serializer = DashboardStatsSerializer(data)
+            # return Response(serializer.data)
+            
+            # Или просто возвращаем данные
+            return Response(data)
+
+        except Exception as e:
+            # Логируем ошибку для отладки
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in AdminDashboardView: {str(e)}")
+            
+            return Response(
+                {'error': 'Internal server error', 'details': str(e)}, 
+                status=500
+            )
 
 
 class StudentGradesView(APIView):
@@ -1526,13 +1612,13 @@ class StudentGradesView(APIView):
             
             # Получаем все отправленные работы с предзагрузкой связей
             submissions = HomeworkSubmission.objects.filter(
-                lesson__month__course__group=group
+                lesson__month__group=group
             ).select_related(
-                'lesson__month__course__group',
+                'lesson__month__group',
                 'lesson__month',
                 'student'
             ).prefetch_related(
-                'lesson__month__course'
+                'lesson__month'
             ).order_by('lesson__order')
             
             # Группируем по студентам
@@ -1554,31 +1640,24 @@ class StudentGradesView(APIView):
                 })
             
             # Получаем структуру курсов
-            courses = group.courses.all().prefetch_related(
-                'months',
-                'months__lessons'
-            )
-            
+            months = group.months.all().prefetch_related('lessons')
+
             response_data = {
                 'group': {
                     'id': group.id,
                     'name': group.group_name,
                     'direction': group.direction.name if group.direction else None
                 },
-                'courses': [{
-                    'id': course.id,
-                    'course_number': course.course_number,
-                    'months': [{
-                        'id': month.id,
-                        'month_number': month.month_number,
-                        'title': month.title,
-                        'lessons': [{
-                            'id': lesson.id,
-                            'title': lesson.title,
-                            'order': lesson.order
-                        } for lesson in month.lessons.all().order_by('order')]
-                    } for month in course.months.all().order_by('month_number')]
-                } for course in courses.order_by('course_number')],
+                'months': [{
+                    'id': month.id,
+                    'month_number': month.month_number,
+                    'title': month.title,
+                    'lessons': [{
+                        'id': lesson.id,
+                        'title': lesson.title,
+                        'order': lesson.order
+                    } for lesson in month.lessons.all().order_by('order')]
+                } for month in months.order_by('month_number')],
                 'students': students_data
             }
             
@@ -1629,8 +1708,118 @@ class StudentProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
 
 
-class TeacherProfileView(generics.RetrieveUpdateAPIView):
-    serializer_class = TeacherProfileSerializer
-    queryset = CustomUser.objects.filter(role='Teacher')
-    lookup_url_kwarg = 'teacher_id'
-    permission_classes = [IsAdminOrReadOnlyForManagersAndTeachers]
+class StudentHomeworkViewSet(viewsets.ViewSet):
+    permission_classes = [IsStudent]
+
+    
+
+    # GET список или один урок
+    def list(self, request):
+        user = request.user
+        student_groups = user.student_groups.all()
+        current_months = Months.objects.filter(group__in=student_groups, month_number__in=[g.current_month for g in student_groups])
+        lessons = Lesson.objects.filter(month__in=current_months).exclude(homework_description='').order_by('-date')
+        serializer = StudentHomeworkSerializer(lessons, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    def retrieve(self, request, pk=None):
+        user = request.user
+        lesson = generics.get_object_or_404(Lesson, pk=pk)
+        if lesson.month.group not in user.student_groups.all():
+            raise PermissionDenied("Нет доступа")
+        serializer = StudentHomeworkSerializer(lesson, context={'request': request})
+        return Response(serializer.data)
+
+    # PATCH/PUT HomeworkSubmission
+    def partial_update(self, request, pk=None):
+        user = request.user
+        lesson = generics.get_object_or_404(Lesson, pk=pk)
+        submission, created = HomeworkSubmission.objects.get_or_create(lesson=lesson, student=user)
+        serializer = HomeworkSubmissionUpdateSerializer(submission, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(student=user, lesson=lesson)
+        return Response(serializer.data)
+
+    def update(self, request, pk=None):
+        user = request.user
+        lesson = generics.get_object_or_404(Lesson, pk=pk)
+        submission, created = HomeworkSubmission.objects.get_or_create(lesson=lesson, student=user)
+        serializer = HomeworkSubmissionUpdateSerializer(submission, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(student=user, lesson=lesson)
+        return Response(serializer.data)
+
+
+
+class TeacherHomeworkViewSet(viewsets.ModelViewSet):
+    serializer_class = HomeworkSubmissionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role != "Teacher":
+            raise PermissionDenied("Доступ только для преподавателей.")
+
+        # Находим все группы, где текущий учитель является преподавателем
+        groups = Group.objects.filter(teacher=user)
+
+        # Находим все уроки этих групп
+        lessons = Lesson.objects.filter(month__group__in=groups)
+
+        # Находим все работы студентов по этим урокам
+        return (
+            HomeworkSubmission.objects.filter(lesson__in=lessons)
+            .select_related("student", "lesson")
+            .order_by("-submitted_at")
+        )
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        submission = self.get_object()
+
+        # проверяем что учитель связан с этой группой
+        if submission.lesson.month.group.teacher != user:
+            raise PermissionDenied("Вы не можете изменять чужие работы.")
+
+        # обновляем только проверочные поля
+        serializer.save(
+            status=serializer.validated_data.get("status", submission.status),
+            score=serializer.validated_data.get("score", submission.score),
+            teacher_comment=serializer.validated_data.get(
+                "teacher_comment", submission.teacher_comment
+            ),
+        )
+
+
+class StudentProgressView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentProgressSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role != 'Student':
+            return Lesson.objects.none()
+
+        # Получаем все уроки, где студент состоит в группе
+        lessons = Lesson.objects.filter(month__group__in=user.student_groups.all()).order_by('date')
+
+        # Подготавливаем данные для сериализатора
+        progress_list = []
+        for lesson in lessons:
+            # Получаем посещаемость
+            attendance = Attendance.objects.filter(lesson=lesson, student=user).first()
+            # Получаем домашнее задание
+            homework = HomeworkSubmission.objects.filter(lesson=lesson, student=user).first()
+            
+            progress_list.append({
+                'lesson': lesson,
+                'attendance': attendance or Attendance(status='0'),
+                'homework': homework or HomeworkSubmission(status='black', score=None)
+            })
+        return progress_list
+    
+
+
+class DiscountRegulationViewSet(viewsets.ModelViewSet):
+    queryset = DiscountRegulation.objects.all()
+    serializer_class = DiscountRegulationSerializer

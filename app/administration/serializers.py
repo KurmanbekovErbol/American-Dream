@@ -1,16 +1,85 @@
 from rest_framework import serializers
 import datetime
 from django.utils import timezone
-from django.db.models import Sum, Avg
+from django.db.models import Sum, F, ExpressionWrapper, DecimalField
 from django.contrib.auth import get_user_model
+from django.core.files.storage import default_storage
+import uuid 
 
 from app.administration.models import (
     Direction, Group, Teacher, Student, Lesson, Attendance, Payment, 
     Months, TeacherPayment, Income, Expense, Invoice,
-    FinancialReport, Course, Schedule, Classroom, Lead, HomeworkSubmission, 
-    PaymentNotification
+    FinancialReport, Schedule, Classroom, Lead, HomeworkSubmission, 
+    PaymentNotification, DiscountRegulation, HomeworkFile
     )
 from app.users.models import CustomUser
+
+
+import base64
+import uuid
+from django.core.files.base import ContentFile
+
+class Base64FileField(serializers.FileField):
+    """Загружает файл из Base64"""
+    def to_internal_value(self, data):
+        if isinstance(data, list):
+            files = []
+            for item in data:
+                if item is None:
+                    continue
+                file = self.base64_to_file(item)
+                files.append(file)
+            return files
+        elif data is None:
+            return []
+        else:
+            return self.base64_to_file(data)
+
+    def base64_to_file(self, data):
+        format, imgstr = data.split(';base64,')
+        ext = format.split('/')[-1]
+        id = uuid.uuid4().hex
+        file_name = f"{id}.{ext}"
+        return ContentFile(base64.b64decode(imgstr), name=file_name)
+
+
+
+class FlexibleFileField(serializers.FileField):
+    """Поддерживает как обычные файлы (multipart/form-data), так и base64"""
+    def to_internal_value(self, data):
+        # Если пришёл список файлов (например, JSON-массив base64 строк)
+        if isinstance(data, list):
+            files = []
+            for item in data:
+                if item is None:
+                    continue
+                files.append(self._handle_file(item))
+            return files
+
+        if data is None:
+            return []
+
+        # Один файл или одна base64 строка
+        return self._handle_file(data)
+
+    def _handle_file(self, data):
+        # Если это уже файл (TemporaryUploadedFile)
+        if hasattr(data, "read"):
+            return super().to_internal_value(data)
+
+        # Если это base64 строка
+        if isinstance(data, str) and ";base64," in data:
+            try:
+                format, imgstr = data.split(";base64,")
+                ext = format.split("/")[-1]
+                file_name = f"{uuid.uuid4().hex}.{ext}"
+                return ContentFile(base64.b64decode(imgstr), name=file_name)
+            except Exception:
+                raise serializers.ValidationError("Некорректный base64 файл")
+
+        raise serializers.ValidationError("Ожидается файл или base64 строка")
+
+
 
 class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -35,66 +104,51 @@ class LessonSerializer(serializers.ModelSerializer):
 
 
 class HomeworkSubmissionSerializer(serializers.ModelSerializer):
-    student_name = serializers.SerializerMethodField()
-    group_name = serializers.SerializerMethodField()
-    lesson_title = serializers.CharField(source='lesson.title', read_only=True)
-    
+    project_links = serializers.ListField(
+        child=serializers.URLField(),
+        max_length=5,
+        allow_empty=False
+    )
+    files = serializers.ListField(
+        child=serializers.FileField(),
+        max_length=5,
+        required=False,
+        allow_empty=True
+    )
+
+    teacher_name = serializers.SerializerMethodField(read_only=True)
+    group_name = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = HomeworkSubmission
         fields = [
-            'id', 'lesson', 'lesson_title', 'student', 'student_name', 
-            'group_name', 'project_links', 'files', 'submitted_at',
-            'status', 'score', 'teacher_comment'
+            'id',
+            'lesson',
+            'student',
+            'submitted_at',
+            'status',
+            'score',
+            'teacher_comment',
+            'project_links',
+            'files',
+            'teacher_name',
+            'group_name',
         ]
-        ref_name = "AdministrationHomeworkSubmissionSerializer"
-    
-    def get_student_name(self, obj):
-        return obj.student.get_full_name()
-    
+
+    def get_teacher_name(self, obj):
+        try:
+            teacher = obj.lesson.month.group.teacher
+            if teacher:
+                return teacher.get_full_name()
+        except AttributeError:
+            return None
+
     def get_group_name(self, obj):
-        return obj.lesson.month.course.group.group_name
-    
+        try:
+            return obj.lesson.month.group.group_name
+        except AttributeError:
+            return None
 
-class LessonDetailSerializer(serializers.ModelSerializer):
-    homework_submissions = HomeworkSubmissionSerializer(many=True, read_only=True)
-    
-    class Meta:
-        model = Lesson
-        fields = [
-            'id', 'title', 'description', 'date', 'lesson_links',
-            'homework_links', 'lesson_recording', 'homework_deadline',
-            'homework_description', 'homework_requirements', 'homework_submissions'
-        ]
-
-class HomeworkListSerializer(serializers.ModelSerializer):
-    has_submission = serializers.SerializerMethodField()
-    submission_status = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = Lesson
-        fields = [
-            'id', 'title', 'date', 'homework_deadline',
-            'has_submission', 'submission_status'
-        ]
-    
-    def get_has_submission(self, obj):
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            return obj.homework_submissions.filter(student=request.user).exists()
-        return False
-    
-    def get_submission_status(self, obj):
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            submission = obj.homework_submissions.filter(student=request.user).first()
-            return submission.status if submission else 'not_submitted'
-        return 'not_submitted'
-
-
-class CourseSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Course
-        fields = ['id', 'course_number']
 
 class MonthsSerializer(serializers.ModelSerializer):
     lessons = LessonSerializer(many=True, read_only=True)
@@ -103,19 +157,13 @@ class MonthsSerializer(serializers.ModelSerializer):
         model = Months
         fields = '__all__'
 
-class CourseWithMonthsSerializer(serializers.ModelSerializer):
-    months = MonthsSerializer(many=True, read_only=True)
-    
-    class Meta:
-        model = Course
-        fields = ['id', 'course_number', 'months']
+
 
 class GroupSerializer(serializers.ModelSerializer):
     direction = DirectionSerializer()
     teacher = CustomUserSerializer(read_only=True)
     students = CustomUserSerializer(many=True, read_only=True)
     months = MonthsSerializer(many=True, read_only=True)
-    current_course = serializers.IntegerField(read_only=True)
     current_month = serializers.IntegerField(read_only=True)
     
     class Meta:
@@ -346,18 +394,19 @@ class StudentCreateSerializer(serializers.ModelSerializer):
 class AttendanceSerializer(serializers.ModelSerializer):
     student_id = serializers.IntegerField(source='student.id', read_only=True)
     student = serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.all(), write_only=True)
-    course_number = serializers.SerializerMethodField()
     month_number = serializers.SerializerMethodField()
+    group_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Attendance
-        fields = ['id', 'student_id', 'student', 'status', 'course_number', 'month_number', 'lesson']
+        fields = ['id', 'student_id', 'student', 'status', 'group_id', 'month_number', 'lesson']
 
-    def get_course_number(self, obj):
-        return obj.lesson.month.course.course_number
 
     def get_month_number(self, obj):
         return obj.lesson.month.month_number
+    
+    def get_group_id(self, obj):
+        return obj.lesson.month.group.id
 
 
 
@@ -368,17 +417,18 @@ class PaymentSerializer(serializers.ModelSerializer):
         source='invoice',
         write_only=True
     )
-    payment_type_display = serializers.CharField(source='get_payment_type_display', read_only=True)
     student_name = serializers.CharField(source='invoice.student.get_full_name', read_only=True)
-    month_name = serializers.CharField(source='invoice.month.name', read_only=True)
+    month_name = serializers.CharField(source='invoice.months.name', read_only=True)
+    total_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = Payment
         fields = [
-            'id', 'invoice_id', 'amount', 'payment_type', 'payment_type_display',
+            'id', 'invoice_id',
+            'cash_amount', 'transfer_amount', 'online_amount',
+            'total_amount',
             'date', 'comment', 'student_name', 'month_name'
         ]
-
 
 # serializers.py
 class StudentDetailSerializer(serializers.ModelSerializer):
@@ -395,13 +445,13 @@ class StudentDetailSerializer(serializers.ModelSerializer):
             if not group:
                 return []
             
-            course_ids = group.courses.values_list('id', flat=True)
+            month_ids = group.months.values_list('id', flat=True)
             
             attendances = Attendance.objects.filter(
                 student=obj,
-                lesson__month__course_id__in=course_ids
+                lesson__month_id__in=month_ids
             ).select_related(
-                'lesson__month__course'
+                'lesson__month'
             )
             
             return AttendanceSerializer(attendances, many=True).data
@@ -414,12 +464,12 @@ class StudentDetailSerializer(serializers.ModelSerializer):
                     return []
 
                 # Получаем все курсы группы
-                course_ids = group.courses.values_list('id', flat=True)
+                month_ids = group.month.values_list('id', flat=True)
                 
                 # Получаем платежи по курсам группы
                 payments = Payment.objects.filter(
                     invoice__student=obj,
-                    invoice__course_id__in=course_ids
+                    invoice__month_id__in=month_ids
                 ).select_related('invoice', 'invoice__student')
                 
                 return GroupPaymentSerializer(payments, many=True).data
@@ -430,12 +480,11 @@ class StudentDetailSerializer(serializers.ModelSerializer):
 class GroupDashboardSerializer(serializers.ModelSerializer):
     direction = DirectionSerializer(read_only=True)
     teacher = CustomUserSerializer(read_only=True)
-    courses = CourseWithMonthsSerializer(many=True, read_only=True)
     students = serializers.SerializerMethodField()
     
     class Meta:
         model = Group
-        fields = ['id', 'group_name', 'direction', 'teacher', 'courses', 'students']
+        fields = ['id', 'group_name', 'direction', 'teacher', 'students']
     
     def get_students(self, obj):
         students = obj.students.all()
@@ -453,40 +502,40 @@ class GroupDashboardSerializer(serializers.ModelSerializer):
 class GroupTableSerializer(serializers.ModelSerializer):
     direction = serializers.CharField(source='direction.name')
     group = serializers.CharField(source='group_name')
-    course = serializers.SerializerMethodField()
+    month = serializers.SerializerMethodField()
     lesson = serializers.SerializerMethodField()
 
     class Meta:
         model = Group
-        fields = ['id', 'direction', 'group', 'course', 'lesson']
+        fields = ['id', 'direction', 'group', 'month', 'lesson']
 
-    def get_course(self, obj):
+    def get_month(self, obj):
         """Определить текущий курс группы"""
         # Если курсов нет — возвращаем 1
-        if not obj.courses.exists():
+        if not obj.months.exists():
             return 1
 
         # Логика определения курса — берём максимальный номер курса,
         # по которому уже есть уроки с датой
-        last_course_with_lesson = (
-            Course.objects.filter(group=obj, months__lessons__date__isnull=False)
-            .order_by('-course_number')
+        last_month_with_lesson = (
+            Months.objects.filter(group=obj, lessons__date__isnull=False)
+            .order_by('-month_number')
             .first()
         )
 
-        if last_course_with_lesson:
-            return last_course_with_lesson.course_number
+        if last_month_with_lesson:
+            return last_month_with_lesson.month_number
 
         # Если уроков с датой нет, берём первый курс
-        return obj.courses.order_by('course_number').first().course_number
+        return obj.months.order_by('month_number').first().month_number
 
     def get_lesson(self, obj):
         """Получить номер последнего пройденного урока"""
         try:
-            course_ids = obj.courses.values_list('id', flat=True)
+            month_ids = obj.months.values_list('id', flat=True)
 
             last_lesson = Lesson.objects.filter(
-                month__course_id__in=course_ids
+                month_id__in=month_ids
             ).order_by('-date', '-order').first()
 
             return last_lesson.order if last_lesson else 0
@@ -584,10 +633,10 @@ class TeacherTableSerializer(serializers.ModelSerializer):
 
 class InvoiceSerializer(serializers.ModelSerializer):
     student = serializers.SerializerMethodField()
-    course = CourseSerializer(read_only=True)
-    course_id = serializers.PrimaryKeyRelatedField(
-        queryset=Course.objects.all(),
-        source='course',
+    month = MonthsSerializer(read_only=True)
+    month_id = serializers.PrimaryKeyRelatedField(
+        queryset=Months.objects.all(),
+        source='month',
         write_only=True
     )
     student_id = serializers.PrimaryKeyRelatedField(
@@ -604,7 +653,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = [
-            'id', 'student', 'student_id', 'course', 'course_id', 'amount',
+            'id', 'student', 'student_id', 'month', 'month_id', 'amount',
             'discount', 'final_amount', 'date_created', 'due_date', 'status',
             'status_display', 'paid_amount', 'balance', 'comment'
         ]
@@ -632,15 +681,15 @@ class IncomeSerializer(serializers.ModelSerializer):
     direction_name = serializers.CharField(source='direction.name', read_only=True)
     student_name = serializers.SerializerMethodField()
     group_name = serializers.CharField(source='group.group_name', read_only=True)
-    payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
 
     class Meta:
         model = Income
         fields = [
-            'id', 'direction', 'direction_name', 'amount', 'date', 
-            'payment_method', 'payment_method_display', 'student', 
-            'student_name', 'group', 'group_name', 'comment', 'discount',
-            'is_full_payment'
+            'id', 'direction', 'direction_name',
+            'cash_amount', 'transfer_amount', 'online_amount',
+            'total_amount',
+            'date', 'student', 'student_name', 'group', 'group_name',
+            'comment', 'discount', 'is_full_payment'
         ]
 
     def get_student_name(self, obj):
@@ -680,7 +729,6 @@ class FinancialReportSerializer(serializers.ModelSerializer):
     expenses_by_category = serializers.SerializerMethodField()
     top_courses = serializers.SerializerMethodField()
     
-    # Заменяем статические поля на динамические:
     total_income = serializers.SerializerMethodField()
     total_expenses = serializers.SerializerMethodField()
     net_profit = serializers.SerializerMethodField()
@@ -694,29 +742,31 @@ class FinancialReportSerializer(serializers.ModelSerializer):
         ]
 
     def get_total_income(self, obj):
-        """Динамически рассчитываем общий доход за период"""
+        total_expr = ExpressionWrapper(
+            F('cash_amount') + F('transfer_amount') + F('online_amount'),
+            output_field=DecimalField()
+        )
         return Payment.objects.filter(
             date__date__range=[obj.start_date, obj.end_date]
-        ).aggregate(total=Sum('amount'))['total'] or 0
+        ).aggregate(total=Sum(total_expr))['total'] or 0
 
     def get_total_expenses(self, obj):
-        """Динамически рассчитываем общие расходы за период"""
         return Expense.objects.filter(
             date__range=[obj.start_date, obj.end_date]
         ).aggregate(total=Sum('amount'))['total'] or 0
 
     def get_net_profit(self, obj):
-        """Динамически рассчитываем чистую прибыль"""
         return self.get_total_income(obj) - self.get_total_expenses(obj)
-
-    # Остальные методы (income_by_type, expenses_by_category, top_courses) остаются без изменений
-    # ...
 
     def get_income_by_type(self, obj):
         payments = Payment.objects.filter(
             date__date__range=[obj.start_date, obj.end_date]
-        ).values('payment_type').annotate(total=Sum('amount'))
-        return {p['payment_type']: float(p['total']) for p in payments}
+        )
+        return {
+            'cash': float(payments.aggregate(total=Sum('cash_amount'))['total'] or 0),
+            'transfer': float(payments.aggregate(total=Sum('transfer_amount'))['total'] or 0),
+            'online': float(payments.aggregate(total=Sum('online_amount'))['total'] or 0)
+        }
 
     def get_expenses_by_category(self, obj):
         expenses = Expense.objects.filter(
@@ -726,14 +776,14 @@ class FinancialReportSerializer(serializers.ModelSerializer):
 
     def get_top_courses(self, obj):
         from django.db.models import Sum
-        courses = Invoice.objects.filter(
+        months = Invoice.objects.filter(
             date_created__date__range=[obj.start_date, obj.end_date]
-        ).values('course__group__direction__name').annotate(
+        ).values('months__group__direction__name').annotate(
             total=Sum('amount')
         ).order_by('-total')[:5]
         
-        return {c['course__group__direction__name']: float(c['total']) 
-                for c in courses if c['course__group__direction__name']}
+        return {c['months__group__direction__name']: float(c['total']) 
+                for c in months if c['months__group__direction__name']}
 
 # serializers.py
 class GroupPaymentSerializer(serializers.ModelSerializer):
@@ -913,26 +963,26 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
     
     def get_date(self, obj):
         schedule = Schedule.objects.filter(
-            group=obj.lesson.month.course.group,
+            group=obj.lesson.month.group,
             date=obj.lesson.date
         ).first()
         return schedule.date.strftime('%d.%m.%Y') if schedule else None
     
     def get_subject(self, obj):
-        return obj.lesson.month.course.group.direction.name
+        return obj.lesson.month.group.direction.name
     
     def get_status_display(self, obj):
         return obj.get_status_display()
     
     def get_teacher(self, obj):
         schedule = Schedule.objects.filter(
-            group=obj.lesson.month.course.group,
+            group=obj.lesson.month.group,
             date=obj.lesson.date
         ).first()
         return schedule.teacher if schedule else None
     
     def get_group(self, obj):
-        return obj.lesson.month.course.group.group_name
+        return obj.lesson.month.group.group_name
     
 
     
@@ -990,23 +1040,6 @@ class DashboardStatsSerializer(serializers.Serializer):
 
 
 
-
-class HomeworkSubmissionSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = HomeworkSubmission
-        fields = [
-            'id',
-            'lesson',
-            'student',
-            'project_links',
-            'files',
-            'submitted_at',
-            'status',
-            'score',
-            'teacher_comment'
-        ]
-        ref_name = "TeacherHomeworkSubmissionSerializer"
     
 
 
@@ -1060,7 +1093,6 @@ class ProfileSerializer(serializers.ModelSerializer):
 class StudentProfileSerializer(serializers.ModelSerializer):
     teacher = serializers.SerializerMethodField()
     direction = serializers.SerializerMethodField()
-    course = serializers.SerializerMethodField()
     password = serializers.CharField(write_only=True, required=False)
     avatarka = serializers.FileField(required=False, allow_null=True)
     avatarka_url = serializers.SerializerMethodField(read_only=True)
@@ -1069,7 +1101,7 @@ class StudentProfileSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = [
             'id', 'first_name', 'last_name', 'username',
-            'telegram', 'phone', 'teacher', 'direction', 'course',
+            'telegram', 'phone', 'teacher', 'direction',
             'password', 'avatarka', 'avatarka_url'
         ]
         extra_kwargs = {
@@ -1096,13 +1128,6 @@ class StudentProfileSerializer(serializers.ModelSerializer):
     def get_direction(self, obj):
         group = obj.student_groups.first()
         return group.direction.name if group and group.direction else None
-
-    def get_course(self, obj):
-        group = obj.student_groups.first()
-        if not group:
-            return None
-        latest_course = group.courses.order_by('-course_number').first()
-        return latest_course.course_number if latest_course else None
 
     def get_avatarka_url(self, obj):
         request = self.context.get('request')
@@ -1147,3 +1172,100 @@ class TeacherProfileSerializer(serializers.ModelSerializer):
         if obj.avatarka and hasattr(obj.avatarka, 'url') and request:
             return request.build_absolute_uri(obj.avatarka.url)
         return None
+    
+
+
+class StudentHomeworkSerializer(serializers.ModelSerializer):
+    homework_submission = serializers.SerializerMethodField()
+    group_name = serializers.CharField(source='month.group.group_name', read_only=True)
+    month_number = serializers.IntegerField(source='month.month_number', read_only=True)
+    month_title = serializers.CharField(source='month.title', read_only=True)
+    teacher_full_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Lesson
+        fields = [
+            'id', 'title', 'description', 'date',
+            'lesson_links', 'homework_links', 'lesson_recording',
+            'homework_deadline', 'homework_description', 'homework_requirements',
+            'group_name', 'month_number', 'month_title',
+            'teacher_full_name', 'homework_submission'
+        ]
+
+    def get_teacher_full_name(self, obj):
+        teacher = getattr(obj.month.group, 'teacher', None)
+        return teacher.get_full_name() if teacher else None
+
+    def get_homework_submission(self, obj):
+        user = self.context['request'].user
+        submission, created = HomeworkSubmission.objects.get_or_create(
+            lesson=obj,
+            student=user,
+            defaults={"status": "black", "project_links": []}
+        )
+        return {
+            "id": submission.id,
+            "project_links": submission.project_links or [],
+            "files": [f.file.url for f in submission.homework_files.all()],
+            "status": submission.status,
+            "score": submission.score,
+            "teacher_comment": submission.teacher_comment or "",
+            "submitted_at": submission.submitted_at,
+            "updated_at": submission.updated_at,
+        }
+
+
+
+
+class HomeworkSubmissionUpdateSerializer(serializers.ModelSerializer):
+    project_links = serializers.ListField(child=serializers.URLField(), required=False)
+    files = serializers.ListField(child=serializers.FileField(), required=False, write_only=True)
+
+    class Meta:
+        model = HomeworkSubmission
+        fields = ['project_links', 'files', 'status']
+
+    def update(self, instance, validated_data):
+        # 1. Заменяем файлы, если они пришли
+        files = validated_data.pop('files', None)
+        if files is not None:
+            instance.homework_files.all().delete()
+            for f in files:
+                HomeworkFile.objects.create(submission=instance, file=f)
+
+        # 2. Обновляем project_links, если пришли
+        project_links = validated_data.get('project_links')
+        if project_links is not None:
+            instance.project_links = project_links
+
+        # 3. Автоматически ставим статус orange
+        instance.status = 'orange'
+
+        instance.save()
+        return instance
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['files'] = [f.file.url for f in instance.homework_files.all()]
+        return data
+
+
+
+
+
+
+
+class StudentProgressSerializer(serializers.Serializer):
+    lesson_id = serializers.IntegerField(source='lesson.id')
+    lesson_title = serializers.CharField(source='lesson.title')
+    date = serializers.DateTimeField(source='lesson.date')
+    attendance_status = serializers.CharField(source='attendance.status', default='0')
+    homework_status = serializers.CharField(source='homework.status', default='black')
+    homework_score = serializers.IntegerField(source='homework.score', default=None)
+
+
+
+class DiscountRegulationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DiscountRegulation
+        fields = "__all__"

@@ -5,8 +5,7 @@ from app.administration.views import (
     LessonViewSet, AttendanceViewSet, PaymentViewSet, 
     GroupDashboardView, MonthsViewSet, GroupTableViewSet, StudentTableViewSet,
     ScheduleViewSet, DailyScheduleView,
-    StudentAttendanceView,
-    MyHomeworkSubmissionsView, TeacherHomeworkListView, HomeworkReviewView
+    StudentAttendanceView, TeacherHomeworkViewSet
     )
 
 router = DefaultRouter()
@@ -24,7 +23,6 @@ urlpatterns = [
     path('groups/<int:id>/dashboard/', GroupDashboardView.as_view(), name='group-dashboard'),
     path('daily-schedule/', DailyScheduleView.as_view(), name='daily-schedule'),
     path('students/<int:student_id>/attendance/', StudentAttendanceView.as_view(), name='student-attendance'),
-    path('my-submissions/', MyHomeworkSubmissionsView.as_view(), name='my-homework-submissions'),
-    path('teacher/homework/', TeacherHomeworkListView.as_view(), name='teacher-homework-list'),
-    path('teacher/homework/<int:pk>/review/', HomeworkReviewView.as_view(), name='homework-review'),
+    path("teacher/homework/", TeacherHomeworkViewSet.as_view({"get": "list", "patch": "partial_update", "put": "update"}), name='teacher-homework'),
+    path("teacher/homework/<int:pk>/", TeacherHomeworkViewSet.as_view({"get": "retrieve", "patch": "partial_update", "put": "update"}), name='teacher-homework-checking'),
 ]
