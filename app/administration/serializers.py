@@ -434,47 +434,67 @@ class PaymentSerializer(serializers.ModelSerializer):
 class StudentDetailSerializer(serializers.ModelSerializer):
     attendances = serializers.SerializerMethodField()
     payments = serializers.SerializerMethodField()
-    
+    homework_scores = serializers.SerializerMethodField()  # <-- добавили
+
     class Meta:
         model = CustomUser
-        fields = ['id', 'username', 'first_name', 'last_name', 'age', 'is_active', 
-                 'attendances', 'payments']
+        fields = [
+            'id', 'username', 'first_name', 'last_name', 'age', 'is_active',
+            'attendances', 'homework_scores', 'payments'
+        ]
     
     def get_attendances(self, obj):
-            group = self.context.get('group')
-            if not group:
-                return []
-            
-            month_ids = group.months.values_list('id', flat=True)
-            
-            attendances = Attendance.objects.filter(
-                student=obj,
-                lesson__month_id__in=month_ids
-            ).select_related(
-                'lesson__month'
-            )
-            
-            return AttendanceSerializer(attendances, many=True).data
-    
+        group = self.context.get('group')
+        if not group:
+            return []
+        
+        month_ids = group.months.values_list('id', flat=True)
+        
+        attendances = Attendance.objects.filter(
+            student=obj,
+            lesson__month_id__in=month_ids
+        ).select_related('lesson__month')
+        
+        return AttendanceSerializer(attendances, many=True).data
+
+    def get_homework_scores(self, obj):
+        group = self.context.get('group')
+        if not group:
+            return []
+        
+        month_ids = group.months.values_list('id', flat=True)
+        
+        submissions = HomeworkSubmission.objects.filter(
+            student=obj,
+            lesson__month_id__in=month_ids
+        ).select_related('lesson__month')
+        
+        return [
+            {
+                "lesson_id": sub.lesson.id,
+                "lesson_title": sub.lesson.title,
+                "month_number": sub.lesson.month.month_number,
+                "score": sub.score,
+                "status": sub.status
+            }
+            for sub in submissions
+        ]
 
     def get_payments(self, obj):
-            try:
-                group = self.context.get('group')
-                if not group:
-                    return []
+        group = self.context.get('group')
+        if not group:
+            return []
 
-                # Получаем все курсы группы
-                month_ids = group.month.values_list('id', flat=True)
-                
-                # Получаем платежи по курсам группы
-                payments = Payment.objects.filter(
-                    invoice__student=obj,
-                    invoice__month_id__in=month_ids
-                ).select_related('invoice', 'invoice__student')
-                
-                return GroupPaymentSerializer(payments, many=True).data
-            except Exception:
-                return []
+        month_ids = group.months.values_list('id', flat=True)
+
+        invoices = Invoice.objects.filter(
+            student=obj,
+            months_id__in=month_ids
+        ).prefetch_related('payments')
+
+        return GroupInvoiceSerializer(invoices, many=True).data
+
+
 
 
 class GroupDashboardSerializer(serializers.ModelSerializer):
@@ -549,6 +569,7 @@ class GroupTableSerializer(serializers.ModelSerializer):
 
 # serializers.py
 class StudentTableSerializer(serializers.ModelSerializer):
+    user_id = serializers.SerializerMethodField()  # ID пользователя
     full_name = serializers.SerializerMethodField()
     group = serializers.SerializerMethodField()
     direction = serializers.SerializerMethodField()
@@ -556,7 +577,10 @@ class StudentTableSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Student 
-        fields = ['id', 'full_name', 'group', 'direction', 'teacher']
+        fields = ['user_id', 'full_name', 'group', 'direction', 'teacher']
+
+    def get_user_id(self, obj):
+        return obj.user.id  # возвращаем id пользователя
 
     def get_full_name(self, obj):
         return obj.user.get_full_name() or "-"
@@ -786,19 +810,16 @@ class FinancialReportSerializer(serializers.ModelSerializer):
                 for c in months if c['months__group__direction__name']}
 
 # serializers.py
-class GroupPaymentSerializer(serializers.ModelSerializer):
-    final_amount = serializers.DecimalField(source='invoice.final_amount', max_digits=10, decimal_places=2)
-    paid_amount = serializers.DecimalField(source='invoice.paid_amount', max_digits=10, decimal_places=2)
-    balance = serializers.DecimalField(source='invoice.balance', max_digits=10, decimal_places=2)
-    payment_type_display = serializers.CharField(source='get_payment_type_display', read_only=True)
-    student_name = serializers.CharField(source='invoice.student.get_full_name', read_only=True)
+class GroupInvoiceSerializer(serializers.ModelSerializer):
+    final_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    paid_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    balance = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
-        model = Payment
-        fields = [
-            'id', 'final_amount', 'paid_amount', 'balance',
-            'payment_type', 'payment_type_display', 'date', 'comment', 'student_name'
-        ]
+        model = Invoice
+        fields = ['id', 'final_amount', 'paid_amount', 'balance']
+
+
 
 
 

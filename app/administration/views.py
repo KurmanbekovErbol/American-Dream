@@ -106,20 +106,35 @@ class GroupViewSet(viewsets.ModelViewSet):
                 continue
 
         if group.creation_type == 'auto':
-            for month_number in range(1, group.duration_months + 1):
-                month = Months.objects.create(
-                    group=group,
-                    month_number=month_number,
-                    title=f"Месяц {month_number}",
-                    description=f"Автоматически созданный месяц {month_number}"
-                )
-                for lesson_number in range(1, group.lessons_per_month + 1):
-                    Lesson.objects.create(
-                        month=month,
-                        order=lesson_number,
-                        title=f"Урок {lesson_number}",
-                        description=f"Автоматически созданный урок {lesson_number}"
+                for month_num in range(1, group.duration_months + 1):
+                    month = Months.objects.create(
+                        group=group,
+                        month_number=month_num,
+                        title=f"Месяц {month_num}",
+                        description=f"Описание месяца {month_num}"
                     )
+
+                    # Генерация уроков
+                    for lesson_num in range(1, group.lessons_per_month + 1):
+                        lesson = Lesson.objects.create(
+                            month=month,
+                            order=lesson_num,
+                            title=f"Урок {lesson_num}",
+                            description=f"Описание урока {lesson_num}"
+                        )
+
+                        # Для каждого студента создаём Attendance и HomeworkSubmission
+                        for student in group.students.all():
+                            Attendance.objects.create(
+                                lesson=lesson,
+                                student=student,
+                                status='0'
+                            )
+                            HomeworkSubmission.objects.create(
+                                lesson=lesson,
+                                student=student,
+                                status='black'
+                            )
 
 
         headers = self.get_success_headers(serializer.data)
@@ -135,7 +150,7 @@ class GroupViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         group = serializer.save()
 
-        # Обработка преподавателя
+        # ---------------- Преподаватель ----------------
         new_teacher_id = request.data.get('teacher')
         if new_teacher_id:
             try:
@@ -152,13 +167,13 @@ class GroupViewSet(viewsets.ModelViewSet):
             except Teacher.DoesNotExist:
                 pass
 
-        # ✅ Обработка студентов
+        # ---------------- Студенты ----------------
         student_ids = request.data.get('students', [])
         if student_ids is not None:
             current_students = set(instance.students.all())
             new_students = set(CustomUser.objects.filter(id__in=student_ids, role='Student'))
 
-            # Удалим группу у студентов, которых больше нет в списке
+            # Удаляем группу у студентов, которых больше нет в списке
             for user in current_students - new_students:
                 try:
                     student_add = user.student_add
@@ -168,17 +183,32 @@ class GroupViewSet(viewsets.ModelViewSet):
                 except Student.DoesNotExist:
                     continue
 
-            # Добавим группу новым студентам
+            # Добавляем группу новым студентам
             for user in new_students:
                 try:
                     student_add = user.student_add
                     student_add.groups.add(group)
                     if group.direction and group.direction not in student_add.directions.all():
                         student_add.directions.add(group.direction)
+
+                    # --------- Автоматически создаем Attendance и HomeworkSubmission для новых студентов ----------
+                    for lesson in Lesson.objects.filter(month__group=group):
+                        Attendance.objects.get_or_create(
+                            lesson=lesson,
+                            student=user,
+                            defaults={'status':'0'}
+                        )
+                        HomeworkSubmission.objects.get_or_create(
+                            lesson=lesson,
+                            student=user,
+                            defaults={'status':'black'}
+                        )
+
                 except Student.DoesNotExist:
                     continue
 
         return Response(serializer.data)
+
 
 
     
@@ -302,7 +332,11 @@ class GroupDashboardView(generics.RetrieveAPIView):
                 'id': instance.id,
                 'name': instance.group_name,
                 'direction': instance.direction.name if instance.direction else None,
-                'teacher': instance.teacher.get_full_name() if instance.teacher else None
+                'teacher': instance.teacher.get_full_name() if instance.teacher else None,
+                'format': instance.format,
+                'creation_date': instance.creation_date,
+                'age_group': instance.age_group,
+                'is_active': instance.is_active,
             },
             'months': MonthsSerializer(
                 instance.months.all().order_by('month_number'),
@@ -331,14 +365,15 @@ class GroupTableViewSet(viewsets.ReadOnlyModelViewSet):
     """Viewset для отображения таблицы групп (с месяцем обучения)"""
     serializer_class = GroupTableSerializer
     filterset_fields = ['direction__name', 'group_name']
-    permission_classes = [IsAdminOrTeacher]  # если у тебя есть кастомные права
+    permission_classes = [IsAdminOrTeacher]  # кастомные права
 
     def get_queryset(self):
         qs = Group.objects.all().select_related('direction')
 
         user = self.request.user
-        if user.role == "Teacher":
-            qs = qs.filter(teacher=user)  # только его группы
+        # если преподаватель — показываем только его группы
+        if user.is_authenticated and user.role == "Teacher":
+            qs = qs.filter(teacher=user)
 
         return qs
 
@@ -540,7 +575,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrManager, IsAdmin]
     queryset = Payment.objects.all().select_related('invoice')
     serializer_class = PaymentSerializer
-    filterset_fields = ['payment_type', 'date', 'invoice']
+    filterset_fields = ['date', 'invoice']
 
     def get_queryset(self):
         queryset = super().get_queryset()

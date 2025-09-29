@@ -42,6 +42,7 @@ class Group(models.Model):
     lesson_duration = models.PositiveIntegerField(verbose_name="Продолжительность занятия (часы)")
     lessons_per_week = models.PositiveIntegerField(verbose_name="Занятий в неделю")
     schedule_days = models.CharField(max_length=100, verbose_name="Дни занятий")
+    is_active = models.BooleanField(default=True, verbose_name="Активный")
     
     teacher = models.ForeignKey(
         CustomUser,
@@ -93,6 +94,42 @@ class Group(models.Model):
 
     def __str__(self):
         return f"{self.group_name} ({self.direction.name})"
+    
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+
+        if is_new and self.creation_type == 'auto':
+            for month_num in range(1, self.duration_months + 1):
+                month, _ = Months.objects.get_or_create(
+                    group=self,
+                    month_number=month_num,
+                    defaults={
+                        "title": f"Месяц {month_num}",
+                        "description": f"Описание месяца {month_num}"
+                    }
+                )
+                for lesson_num in range(1, self.lessons_per_month + 1):
+                    lesson, _ = Lesson.objects.get_or_create(
+                        month=month,
+                        order=lesson_num,
+                        defaults={
+                            "title": f"Урок {lesson_num}",
+                            "description": f"Описание урока {lesson_num}"
+                        }
+                    )
+                    for student in self.students.all():
+                        Attendance.objects.get_or_create(
+                            lesson=lesson,
+                            student=student,
+                            defaults={"status": "0"}
+                        )
+                        HomeworkSubmission.objects.get_or_create(
+                            lesson=lesson,
+                            student=student,
+                            defaults={"status": "black"}
+                        )
     
 
 

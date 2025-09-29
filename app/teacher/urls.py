@@ -15,6 +15,8 @@ router.register(r'lessons', LessonViewSet, basename='lesson')
 router.register(r'attendances', AttendanceViewSet, basename='attendance')
 router.register(r'student-table', StudentTableViewSet, basename='student-table')
 router.register(r'schedule', ScheduleViewSet, basename='schedule')
+router.register(r'group-table', GroupTableViewSet, basename='group_table')
+
 
 
 
