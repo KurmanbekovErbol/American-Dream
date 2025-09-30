@@ -11,7 +11,7 @@ from app.administration.views import (
     StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView,
     StudentGradesView, PaymentNotificationViewSet, MonthlyIncomePDFView, TeacherWorkloadPDFView,
     CurrentUserProfileView, DirectionViewSet, TeacherProfileView, StudentProfileView, StudentHomeworkViewSet,
-    TeacherHomeworkViewSet, StudentProgressView, DiscountRegulationViewSet
+    TeacherHomeworkViewSet, StudentProgressView, DiscountRegulationViewSet, StudentAttendanceUpdateView
     )
 
 router = DefaultRouter()
@@ -45,6 +45,11 @@ router.register(r'discount-regulations', DiscountRegulationViewSet, basename='di
 urlpatterns = [
     path('', include(router.urls)),
     path('groups/<int:id>/dashboard/', GroupDashboardView.as_view(), name='group-dashboard'),
+    path(
+        "groups/<int:group_id>/dashboard/<int:student_id>/",
+        StudentAttendanceUpdateView.as_view(),
+        name="student-attendance-update"
+    ),
     path('generate-report/', GenerateFinancialReport.as_view(), name='generate-report'),
     path('calculate-teacher-payments/', CalculateTeacherPayments.as_view(), name='calculate-teacher-payments'),
     path('daily-schedule/', DailyScheduleView.as_view(), name='daily-schedule'),

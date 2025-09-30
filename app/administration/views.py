@@ -311,7 +311,7 @@ class MonthsViewSet(viewsets.ModelViewSet):
 
 # views.py
 class GroupDashboardView(generics.RetrieveAPIView):
-    permission_classes = [IsInAllowedRoles]
+    # permission_classes = [IsInAllowedRoles]
     queryset = Group.objects.all().select_related(
         'direction', 'teacher'
     ).prefetch_related(
@@ -340,8 +340,10 @@ class GroupDashboardView(generics.RetrieveAPIView):
             },
             'months': MonthsSerializer(
                 instance.months.all().order_by('month_number'),
-                many=True
+                many=True,
+                context={'request': request}  # 👈 обязательно
             ).data,
+
             'students': serializer.data['students'],
             'tabs': {
                 'data': 'Основные данные',
@@ -1858,3 +1860,32 @@ class StudentProgressView(generics.ListAPIView):
 class DiscountRegulationViewSet(viewsets.ModelViewSet):
     queryset = DiscountRegulation.objects.all()
     serializer_class = DiscountRegulationSerializer
+
+
+class StudentAttendanceUpdateView(generics.UpdateAPIView):
+    permission_classes = [IsAuthenticated]  # или твой кастомный IsInAllowedRoles
+    serializer_class = AttendanceSerializer
+    queryset = Attendance.objects.all()
+
+    def get_object(self):
+        group_id = self.kwargs['group_id']
+        student_id = self.kwargs['student_id']
+
+        # фильтруем все посещаемости по группе и студенту
+        return Attendance.objects.filter(
+            student_id=student_id,
+            lesson__month__group_id=group_id
+        )
+
+    def update(self, request, *args, **kwargs):
+        attendances = self.get_object()
+        data = request.data.get("attendances", [])
+
+        update_map = {item["id"]: item["status"] for item in data}
+
+        for att in attendances:
+            if att.id in update_map:
+                att.status = update_map[att.id]
+                att.save()
+
+        return Response({"detail": "Посещаемости обновлены"}, status=status.HTTP_200_OK)

@@ -246,8 +246,7 @@ class Lesson(models.Model):
     date = models.DateTimeField(verbose_name="Дата", null=True, blank=True)
     lesson_links = models.URLField(blank=True, verbose_name="Ссылки урока")
     homework_links = models.URLField(blank=True, verbose_name="Ссылки ДЗ")
-    lesson_recording = models.FileField(
-        upload_to='lesson_recordings/',
+    lesson_recording = models.URLField(
         blank=True,
         null=True,
         verbose_name="Запись урока"

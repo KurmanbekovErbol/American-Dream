@@ -5,6 +5,9 @@ from django.db.models import Sum, F, ExpressionWrapper, DecimalField
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
 import uuid 
+from PIL import Image
+import io
+from django.core.files.base import ContentFile
 
 from app.administration.models import (
     Direction, Group, Teacher, Student, Lesson, Attendance, Payment, 
@@ -98,9 +101,19 @@ class GroupShortSerializer(serializers.ModelSerializer):
         fields = ['id', 'group_name']
 
 class LessonSerializer(serializers.ModelSerializer):
+    homework_files = serializers.SerializerMethodField()
+
     class Meta:
         model = Lesson
         fields = '__all__'
+
+    def get_homework_files(self, obj):
+        request = self.context.get('request')
+        if request and obj.homework_files:
+            return request.build_absolute_uri(obj.homework_files.url)
+        return None
+
+
 
 
 class HomeworkSubmissionSerializer(serializers.ModelSerializer):
@@ -151,11 +164,21 @@ class HomeworkSubmissionSerializer(serializers.ModelSerializer):
 
 
 class MonthsSerializer(serializers.ModelSerializer):
-    lessons = LessonSerializer(many=True, read_only=True)
-    
+    lessons = serializers.SerializerMethodField()
+
     class Meta:
         model = Months
         fields = '__all__'
+
+    def get_lessons(self, obj):
+        request = self.context.get('request')
+        return LessonSerializer(
+            obj.lessons.all().order_by('order'),
+            many=True,
+            context={'request': request}  # 👈 прокидываем
+        ).data
+
+
 
 
 
@@ -1069,10 +1092,6 @@ class PaymentNotificationSerializer(serializers.ModelSerializer):
         model = PaymentNotification
         fields = '__all__'
 
-
-
-CustomUser = get_user_model()
-
 class ProfileSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
     avatarka = serializers.FileField(required=False, allow_null=True)
@@ -1096,10 +1115,17 @@ class ProfileSerializer(serializers.ModelSerializer):
         if password:
             instance.set_password(password)
 
-        # обновление аватарки
+        # обновление аватарки с конвертацией в webp
         avatarka = validated_data.pop('avatarka', None)
         if avatarka is not None:
-            instance.avatarka = avatarka
+            try:
+                image = Image.open(avatarka).convert("RGB")
+                buffer = io.BytesIO()
+                image.save(buffer, format="WEBP", quality=80)  # качество можно менять
+                file_name = avatarka.name.rsplit('.', 1)[0] + ".webp"
+                instance.avatarka.save(file_name, ContentFile(buffer.getvalue()), save=False)
+            except Exception as e:
+                raise serializers.ValidationError({"avatarka": f"Ошибка обработки изображения: {e}"})
 
         return super().update(instance, validated_data)
 
@@ -1218,7 +1244,8 @@ class StudentHomeworkSerializer(serializers.ModelSerializer):
         return teacher.get_full_name() if teacher else None
 
     def get_homework_submission(self, obj):
-        user = self.context['request'].user
+        request = self.context.get('request')
+        user = request.user
         submission, created = HomeworkSubmission.objects.get_or_create(
             lesson=obj,
             student=user,
@@ -1227,13 +1254,16 @@ class StudentHomeworkSerializer(serializers.ModelSerializer):
         return {
             "id": submission.id,
             "project_links": submission.project_links or [],
-            "files": [f.file.url for f in submission.homework_files.all()],
+            "files": [
+                request.build_absolute_uri(f.file.url) for f in submission.homework_files.all()
+            ],
             "status": submission.status,
             "score": submission.score,
             "teacher_comment": submission.teacher_comment or "",
             "submitted_at": submission.submitted_at,
             "updated_at": submission.updated_at,
         }
+
 
 
 
