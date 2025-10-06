@@ -1,17 +1,19 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from app.administration.views import (
-    GroupViewSet, TeacherViewSet, StudentViewSet, PopularCoursesPDFView,
-    LessonViewSet, AttendanceViewSet, PaymentViewSet, TeacherPaymentsPDFView,
-    GroupDashboardView, MonthsViewSet, GroupTableViewSet, StudentTableViewSet,
-    TeacherTableViewSet, IncomeViewSet, ExpenseViewSet, TeacherPaymentViewSet, SendReportsView,
-    InvoiceViewSet, FinancialReportViewSet, GenerateFinancialReport, IncomePDFView, FinancialReportPDFView,
+    GroupViewSet, TeacherViewSet, StudentViewSet, PopularCoursesPDFView, IncomeReportPDFView,
+    LessonViewSet, AttendanceViewSet, PaymentViewSet, TeacherPaymentsPDFView, IncomeReportView,
+    GroupDashboardView, MonthsViewSet, GroupTableViewSet, StudentTableViewSet, TeacherWorkloadAnalyticsExcel, 
+    TeacherTableViewSet, ExpenseViewSet, TeacherPaymentViewSet, SendReportsView,
+    InvoiceViewSet, FinancialReportViewSet, GenerateFinancialReport, InvoicePDFView, FinancialReportPDFView,
     CalculateTeacherPayments, ClassroomViewSet, ScheduleViewSet, DailyScheduleView, ExpensePDFView,
     ActiveStudentsAnalytics, MonthlyIncomeAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
-    StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView,
+    StudentAttendanceView, StudentPaymentsView, LeadViewSet, AdminDashboardView, IncomeReportExcelView,
     StudentGradesView, PaymentNotificationViewSet, MonthlyIncomePDFView, TeacherWorkloadPDFView,
     CurrentUserProfileView, DirectionViewSet, TeacherProfileView, StudentProfileView, StudentHomeworkViewSet,
-    TeacherHomeworkViewSet, StudentProgressView, DiscountRegulationViewSet, StudentAttendanceUpdateView
+    TeacherHomeworkViewSet, StudentProgressView, DiscountRegulationViewSet, StudentAttendanceUpdateView,
+    MonthlyIncomeAnalyticsExcel, FinancialReportExcelView, ExpenseExcelView, TeacherPaymentExcelView,
+    PopularCoursesExcelView
     )
 
 router = DefaultRouter()
@@ -32,7 +34,6 @@ router.register(r'invoices', InvoiceViewSet, basename='invoice')
 router.register(r'notifications', PaymentNotificationViewSet, basename='notifications')
 router.register(r'payments', PaymentViewSet, basename='payment')
 router.register(r'financial-reports', FinancialReportViewSet, basename='financial-report')
-router.register(r'incomes', IncomeViewSet, basename='income')
 router.register(r'expenses', ExpenseViewSet, basename='expense')
 router.register(r'teacher-payments', TeacherPaymentViewSet, basename='teacher-payment')
 
@@ -52,6 +53,7 @@ urlpatterns = [
     ),
     path('generate-report/', GenerateFinancialReport.as_view(), name='generate-report'),
     path('calculate-teacher-payments/', CalculateTeacherPayments.as_view(), name='calculate-teacher-payments'),
+    path("incomes/", IncomeReportView.as_view(), name="income-report"),
     path('daily-schedule/', DailyScheduleView.as_view(), name='daily-schedule'),
     path('active-students/', ActiveStudentsAnalytics.as_view(), name='active-students'),
     path('monthly-income/', MonthlyIncomeAnalytics.as_view(), name='monthly-income'),
@@ -70,9 +72,16 @@ urlpatterns = [
     path('teacher/<int:teacher_id>/profile/', TeacherProfileView.as_view(), name='teacher-profile'),
     path('popular-courses-pdf/', PopularCoursesPDFView.as_view(), name='popular-courses-pdf'),
     path('teacher-payments-pdf/', TeacherPaymentsPDFView.as_view(), name='teacher-payments-pdf'),
-    path('incomes-pdf/', IncomePDFView.as_view(), name='income-pdf'),
     path('expenses-pdf/', ExpensePDFView.as_view(), name='expense-pdf'),
     path('financial-report-pdf/', FinancialReportPDFView.as_view(), name='financial-report-pdf'),
     path('monthly-income-pdf/', MonthlyIncomePDFView.as_view(), name='monthly-income-pdf'),
     path('teacher-workload-pdf/', TeacherWorkloadPDFView.as_view(), name='teacher-workload-pdf'),
+    path('incomes-pdf/', IncomeReportPDFView.as_view(), name='incomes-pdf'),
+    path('incomes-excel/', IncomeReportExcelView.as_view(), name='incomes-excel'),
+    path('teacher-workload-excel/', TeacherWorkloadAnalyticsExcel.as_view(), name='teacher-workload-excel'),
+    path('monthly-income-excel/', MonthlyIncomeAnalyticsExcel.as_view(), name='monthly-income-excel'),
+    path('financial-reports-excel/', FinancialReportExcelView.as_view(), name='financial-report-excel'),
+    path('expenses-excel/', ExpenseExcelView.as_view(), name='expenses-excel'),
+    path('teacher-payments-excel/', TeacherPaymentExcelView.as_view(), name='teacher-payments-excel'),
+    path('popular-courses-excel/', PopularCoursesExcelView.as_view(), name='popular-courses-excel'),
 ]

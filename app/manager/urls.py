@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from app.administration.views import (
     GroupViewSet, PaymentViewSet, 
     GroupDashboardView, StudentTableViewSet,
-    IncomeViewSet, ExpenseViewSet, TeacherPaymentViewSet, 
+    ExpenseViewSet, TeacherPaymentViewSet, 
     InvoiceViewSet, FinancialReportViewSet, 
     ClassroomViewSet, ScheduleViewSet, DailyScheduleView,
     ActiveStudentsAnalytics, TeacherWorkloadAnalytics, PopularCoursesAnalytics,
@@ -16,7 +16,6 @@ router.register(r'student-table', StudentTableViewSet, basename='student-table')
 router.register(r'invoices', InvoiceViewSet, basename='invoice')
 router.register(r'payments', PaymentViewSet, basename='payment')
 router.register(r'financial-reports', FinancialReportViewSet, basename='financial-report')
-router.register(r'incomes', IncomeViewSet, basename='income')
 router.register(r'expenses', ExpenseViewSet, basename='expense')
 router.register(r'teacher-payments', TeacherPaymentViewSet, basename='teacher-payment')
 router.register(r'classrooms', ClassroomViewSet, basename='classroom')

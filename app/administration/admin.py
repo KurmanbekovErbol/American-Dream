@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Direction, Group, Teacher, Student, Months, Lesson,
-    HomeworkSubmission, Attendance, Income, Expense, TeacherPayment,
+    HomeworkSubmission, Attendance, Expense, TeacherPayment,
     Invoice, Payment, FinancialReport, Classroom, Schedule, Lead,
     PaymentNotification, DiscountRegulation, HomeworkFile
 )
@@ -98,33 +98,6 @@ class AttendanceAdmin(admin.ModelAdmin):
     search_fields = ("student__first_name", "student__last_name", "lesson__title")
     autocomplete_fields = ("lesson", "student")
 
-
-@admin.register(Income)
-class IncomeAdmin(admin.ModelAdmin):
-    list_display = (
-        'direction', 'student', 'group',
-        'cash_amount', 'transfer_amount', 'online_amount', 'total_amount',
-        'date', 'discount', 'is_full_payment'
-    )
-    list_filter = ('direction', 'date', 'is_full_payment', 'group')
-    search_fields = ('student__first_name', 'student__last_name', 'group__group_name')
-    readonly_fields = ('total_amount',)  # Сумма только для просмотра
-
-    fieldsets = (
-        (None, {
-            'fields': (
-                'direction', 'student', 'group', 'date', 'comment'
-            )
-        }),
-        ('Оплата', {
-            'fields': ('cash_amount', 'transfer_amount', 'online_amount', 'total_amount', 'discount', 'is_full_payment')
-        }),
-    )
-
-    def total_amount(self, obj):
-        return obj.total_amount
-
-    total_amount.short_description = "Общая сумма"
 
 
 @admin.register(Expense)

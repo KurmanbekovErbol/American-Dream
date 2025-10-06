@@ -352,39 +352,6 @@ class Attendance(models.Model):
         verbose_name_plural = "Посещаемости"
         unique_together = ('lesson', 'student')
 
-    
-
-
-
-
-
-# Добавляем к существующим моделям
-
-class Income(models.Model):
-    """Модель для учета доходов с раздельными типами оплаты"""
-    direction = models.ForeignKey(Direction, on_delete=models.PROTECT, verbose_name="Направление")
-    cash_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Оплата наличными")
-    transfer_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Оплата переводом")
-    online_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Оплата онлайн")
-    date = models.DateField(verbose_name="Дата")
-    student = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True,
-                                limit_choices_to={'role': 'Student'}, verbose_name="Студент")
-    group = models.ForeignKey(Group, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Группа")
-    comment = models.TextField(blank=True, verbose_name="Комментарий")
-    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Скидка")
-    is_full_payment = models.BooleanField(default=True, verbose_name="Полная оплата")
-
-    class Meta:
-        verbose_name = "Доход"
-        verbose_name_plural = "Доходы"
-        ordering = ['-date']
-
-    def __str__(self):
-        return f"{self.direction.name} - Наличные: {self.cash_amount}, Перевод: {self.transfer_amount}, Онлайн: {self.online_amount} ({self.date})"
-
-    @property
-    def total_amount(self):
-        return (self.cash_amount or 0) + (self.transfer_amount or 0) + (self.online_amount or 0)
 
 
 class Expense(models.Model):
@@ -514,25 +481,25 @@ class Invoice(models.Model):
 
 class Payment(models.Model):
     invoice = models.ForeignKey(
-        Invoice,
-        on_delete=models.CASCADE,
-        related_name='payments',
-        verbose_name="Счёт"
+        Invoice, on_delete=models.CASCADE, related_name='payments', verbose_name="Счёт"
     )
     cash_amount = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0,
-        verbose_name="Оплата наличными"
+        max_digits=10, decimal_places=2, default=0, verbose_name="Оплата наличными"
     )
     transfer_amount = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0,
-        verbose_name="Оплата переводом"
+        max_digits=10, decimal_places=2, default=0, verbose_name="Оплата переводом"
     )
     online_amount = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0,
-        verbose_name="Оплата онлайн"
+        max_digits=10, decimal_places=2, default=0, verbose_name="Оплата онлайн"
     )
     date = models.DateTimeField(default=timezone.now, verbose_name="Дата оплаты")
     comment = models.TextField(blank=True, verbose_name="Комментарий")
+    receipt_pdf = models.FileField(
+        upload_to='receipts/',
+        null=True,
+        blank=True,
+        verbose_name="Чек PDF"
+    )
 
     class Meta:
         verbose_name = "Платеж"

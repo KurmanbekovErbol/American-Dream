@@ -1,17 +1,16 @@
 from rest_framework import serializers
-import datetime
-from django.utils import timezone
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField
-from django.contrib.auth import get_user_model
-from django.core.files.storage import default_storage
 import uuid 
 from PIL import Image
 import io
 from django.core.files.base import ContentFile
+from django.core.files.base import ContentFile
+
+from app.pdf_utils import generate_receipt_pdf
 
 from app.administration.models import (
     Direction, Group, Teacher, Student, Lesson, Attendance, Payment, 
-    Months, TeacherPayment, Income, Expense, Invoice,
+    Months, TeacherPayment, Expense, Invoice,
     FinancialReport, Schedule, Classroom, Lead, HomeworkSubmission, 
     PaymentNotification, DiscountRegulation, HomeworkFile
     )
@@ -435,23 +434,43 @@ class AttendanceSerializer(serializers.ModelSerializer):
 
 
 class PaymentSerializer(serializers.ModelSerializer):
-    invoice_id = serializers.PrimaryKeyRelatedField(
-        queryset=Invoice.objects.all(),
-        source='invoice',
+    student_id = serializers.PrimaryKeyRelatedField(
+        queryset=CustomUser.objects.filter(role='Student'),
         write_only=True
     )
     student_name = serializers.CharField(source='invoice.student.get_full_name', read_only=True)
-    month_name = serializers.CharField(source='invoice.months.name', read_only=True)
+    month_name = serializers.CharField(source='invoice.months.title', read_only=True)
     total_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    invoice_status = serializers.CharField(source='invoice.status', read_only=True)
+    receipt_pdf = serializers.FileField(read_only=True)
 
     class Meta:
         model = Payment
         fields = [
-            'id', 'invoice_id',
-            'cash_amount', 'transfer_amount', 'online_amount',
-            'total_amount',
-            'date', 'comment', 'student_name', 'month_name'
+            'id', 'student_id', 'cash_amount', 'transfer_amount', 
+            'online_amount', 'total_amount', 'date', 'comment',
+            'student_name', 'month_name', 'invoice_status', 'receipt_pdf'
         ]
+
+    def create(self, validated_data):
+        student = validated_data.pop('student_id')
+        
+        # Находим последний неоплаченный счёт
+        invoice = Invoice.objects.filter(
+            student=student
+        ).exclude(status='paid').order_by('due_date').first()
+        
+        if not invoice:
+            raise serializers.ValidationError(
+                {"detail": f"У студента {student.get_full_name()} нет неоплаченных счетов"}
+            )
+
+        payment = Payment.objects.create(invoice=invoice, **validated_data)
+        
+        # Генерируем PDF чек - исправленный вызов
+        generate_receipt_pdf(payment)
+        
+        return payment
 
 # serializers.py
 class StudentDetailSerializer(serializers.ModelSerializer):
@@ -676,21 +695,25 @@ class TeacherTableSerializer(serializers.ModelSerializer):
 
 
 
-# Добавляем к существующим сериализаторам
+class SimpleMonthsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Months
+        fields = ['id', 'month_number', 'title', 'description', 'group']
 
+# Сериализатор счета
 class InvoiceSerializer(serializers.ModelSerializer):
     student = serializers.SerializerMethodField()
-    month = MonthsSerializer(read_only=True)
-    month_id = serializers.PrimaryKeyRelatedField(
+    months = SimpleMonthsSerializer(read_only=True)  # Используем упрощенный месяц
+    months_id = serializers.PrimaryKeyRelatedField(
         queryset=Months.objects.all(),
-        source='month',
+        source='months',
         write_only=True
     )
     student_id = serializers.PrimaryKeyRelatedField(
         queryset=CustomUser.objects.filter(role='Student'),
         source='student',
         write_only=True,
-        required=True  # Явно указываем, что поле обязательно
+        required=True
     )
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     final_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
@@ -700,13 +723,10 @@ class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = [
-            'id', 'student', 'student_id', 'month', 'month_id', 'amount',
+            'id', 'student', 'student_id', 'months', 'months_id', 'amount',
             'discount', 'final_amount', 'date_created', 'due_date', 'status',
             'status_display', 'paid_amount', 'balance', 'comment'
         ]
-        extra_kwargs = {
-            'student_id': {'required': True}  # Дополнительное подтверждение обязательности
-        }
 
     def get_student(self, obj):
         return {
@@ -715,32 +735,6 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'phone': obj.student.phone
         }
 
-    def validate(self, data):
-        if 'student' not in data:
-            raise serializers.ValidationError("Поле 'student_id' обязательно для заполнения")
-        return data
-
-
-
-
-
-class IncomeSerializer(serializers.ModelSerializer):
-    direction_name = serializers.CharField(source='direction.name', read_only=True)
-    student_name = serializers.SerializerMethodField()
-    group_name = serializers.CharField(source='group.group_name', read_only=True)
-
-    class Meta:
-        model = Income
-        fields = [
-            'id', 'direction', 'direction_name',
-            'cash_amount', 'transfer_amount', 'online_amount',
-            'total_amount',
-            'date', 'student', 'student_name', 'group', 'group_name',
-            'comment', 'discount', 'is_full_payment'
-        ]
-
-    def get_student_name(self, obj):
-        return obj.student.get_full_name() if obj.student else None
 
 class ExpenseSerializer(serializers.ModelSerializer):
     category_display = serializers.CharField(source='get_category_display', read_only=True)
@@ -1190,35 +1184,75 @@ class TeacherProfileSerializer(serializers.ModelSerializer):
     avatarka = serializers.FileField(required=False, allow_null=True)
     avatarka_url = serializers.SerializerMethodField(read_only=True)
 
+    groups = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Group.objects.all(),
+        required=False,
+        source="teacher_add.groups"  # <-- читаем из Teacher
+    )
+    directions = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Direction.objects.all(),
+        required=False,
+        source="teacher_add.directions"  # <-- читаем из Teacher
+    )
+
     class Meta:
         model = CustomUser
         fields = [
-            'id', 'first_name', 'last_name', 'username',
-            'telegram', 'phone', 'age',
-            'password', 'avatarka', 'avatarka_url'
+            "id",
+            "first_name",
+            "last_name",
+            "username",
+            "telegram",
+            "phone",
+            "age",
+            "password",
+            "avatarka",
+            "avatarka_url",
+            "groups",
+            "directions",
         ]
         extra_kwargs = {
-            'username': {'read_only': True}
+            "username": {"read_only": True}
         }
 
     def update(self, instance, validated_data):
-        # Обновляем пароль, если пришёл
-        password = validated_data.pop('password', None)
+        # обновляем пароль
+        password = validated_data.pop("password", None)
         if password:
             instance.set_password(password)
 
-        # Обновляем аватарку, если пришла
-        avatarka = validated_data.pop('avatarka', None)
+        # обновляем аватарку
+        avatarka = validated_data.pop("avatarka", None)
         if avatarka is not None:
             instance.avatarka = avatarka
+
+        # работаем с Teacher
+        teacher_data = validated_data.pop("teacher_add", {})
+        teacher_obj, created = Teacher.objects.get_or_create(user=instance)
+
+        groups = teacher_data.get("groups", None)
+        if groups is not None:
+            teacher_obj.groups.set(groups)
+
+        directions = teacher_data.get("directions", None)
+        if directions is not None:
+            teacher_obj.directions.set(directions)
+
+        teacher_obj.save()
 
         return super().update(instance, validated_data)
 
     def get_avatarka_url(self, obj):
-        request = self.context.get('request')
-        if obj.avatarka and hasattr(obj.avatarka, 'url') and request:
+        request = self.context.get("request")
+        if obj.avatarka and hasattr(obj.avatarka, "url") and request:
             return request.build_absolute_uri(obj.avatarka.url)
         return None
+
+
+
+
     
 
 

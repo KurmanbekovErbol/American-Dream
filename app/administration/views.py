@@ -1,3 +1,4 @@
+from openpyxl import Workbook
 from rest_framework import viewsets, generics, status, permissions, mixins
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -6,23 +7,25 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from django.db.models import Sum, Count
 from datetime import timedelta
+from django.db import IntegrityError
+from collections import defaultdict
 from django.db.models.functions import Coalesce
 from decimal import Decimal
 from django.utils import timezone
 from rest_framework.decorators import action
-from django.http import HttpResponse
+from django.http import HttpResponse, FileResponse
 import datetime
-from django.db.models import Count, Sum, Avg, Q, ExpressionWrapper, F, DecimalField, FloatField
+from django.db.models import F, Value, CharField, DecimalField, ExpressionWrapper, Case, When, Sum, Avg, Q, Count, FloatField
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
 from app.administration.models import (
-    Direction, Group, Teacher, Student, Lesson, Attendance, Payment, Months, Income, Expense, 
+    Direction, Group, Teacher, Student, Lesson, Attendance, Payment, Months, Expense, 
     TeacherPayment, Invoice, FinancialReport, Schedule, Classroom, Lead, HomeworkSubmission,
     PaymentNotification, DiscountRegulation
     )
 from app.administration.serializers import (
     DirectionSerializer, GroupSerializer, GroupCreateSerializer, TeacherCreateSerializer, TeacherSerializer, StudentCreateSerializer, StudentSerializer, LessonSerializer, AttendanceSerializer, 
-    PaymentSerializer, GroupDashboardSerializer, MonthsSerializer, GroupTableSerializer, StudentTableSerializer, TeacherTableSerializer, TeacherPaymentSerializer, ExpenseSerializer, IncomeSerializer, FinancialReportSerializer, InvoiceSerializer,
+    PaymentSerializer, GroupDashboardSerializer, MonthsSerializer, GroupTableSerializer, StudentTableSerializer, TeacherTableSerializer, TeacherPaymentSerializer, ExpenseSerializer, FinancialReportSerializer, InvoiceSerializer,
     ScheduleSerializer, ClassroomSerializer, DailyScheduleSerializer, ScheduleListSerializer, ActiveStudentsSerializer, PopularCoursesSerializer,
     TeacherWorkloadSerializer, MonthlyIncomeSerializer, StudentAttendanceSerializer, PaymentHistorySerializer, LeadSerializer, LeadStatusUpdateSerializer, DashboardStatsSerializer,
     LessonSerializer, HomeworkSubmissionSerializer, PaymentNotificationSerializer, ProfileSerializer,
@@ -33,7 +36,7 @@ from app.users.permissions import (
     IsAdminOrManager, IsAdmin, IsTeacher, IsStudent, IsAdminOrTeacher, IsAdminOrReadOnlyForOthers, IsAdminOrReadOnlyForManagersAndTeachers, 
     IsAdminOrTeacherFullAccessOthersReadOnly, IsInAllowedRoles, IsAdminTeacherOrReadOnlyStudent, IsAdminOrStudent, IsManager
     )
-from app.utils import render_to_pdf, send_financial_reports_to_manager
+from app.utils import render_to_pdf, send_financial_reports_to_manager, generate_excel, generate_invoice_pdf
 
 
 
@@ -57,85 +60,44 @@ class GroupViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        teacher_id = request.data.get('teacher')
-        teacher_user = None
-        if teacher_id:
-            try:
-                teacher_user = CustomUser.objects.get(id=teacher_id, role='Teacher')
-            except CustomUser.DoesNotExist:
-                return Response(
-                    {'teacher': 'Пользователь не найден или не является преподавателем'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
         group = serializer.save()
 
-        # Если указан Teacher — добавить группу в его профиль
+        # ---------------- Преподаватель ----------------
         teacher_id = request.data.get('teacher')
         if teacher_id:
             try:
                 teacher_user = CustomUser.objects.get(id=teacher_id, role='Teacher')
                 teacher_add = teacher_user.teacher_add
-
-                # Добавляем группу в профиль преподавателя
                 teacher_add.groups.add(group)
-
-                # Добавляем направление группы, если его ещё нет
-                if group.direction and group.direction not in teacher_add.directions.all():
-                    teacher_add.directions.add(group.direction)
-
             except (CustomUser.DoesNotExist, Teacher.DoesNotExist):
-                pass  # Можно добавить логирование ошибки
+                pass
 
-        # ✅ Добавление группы и направления в профиль каждого ученика
+        # ---------------- Студенты ----------------
         student_ids = request.data.get('students', [])
-        for student_id in student_ids:
-            try:
-                student_user = CustomUser.objects.get(id=student_id, role='Student')
-                student_add = student_user.student_add
+        if student_ids:
+            students = CustomUser.objects.filter(id__in=student_ids, role='Student')
+            for user in students:
+                try:
+                    student_add = user.student_add
+                    student_add.groups.add(group)
+                    if group.direction and group.direction not in student_add.directions.all():
+                        student_add.directions.add(group.direction)
 
-                # Добавляем группу в профиль ученика
-                student_add.groups.add(group)
-
-                # Добавляем направление группы, если его ещё нет
-                if group.direction and group.direction not in student_add.directions.all():
-                    student_add.directions.add(group.direction)
-
-            except (CustomUser.DoesNotExist, Student.DoesNotExist):
-                continue
-
-        if group.creation_type == 'auto':
-                for month_num in range(1, group.duration_months + 1):
-                    month = Months.objects.create(
-                        group=group,
-                        month_number=month_num,
-                        title=f"Месяц {month_num}",
-                        description=f"Описание месяца {month_num}"
-                    )
-
-                    # Генерация уроков
-                    for lesson_num in range(1, group.lessons_per_month + 1):
-                        lesson = Lesson.objects.create(
-                            month=month,
-                            order=lesson_num,
-                            title=f"Урок {lesson_num}",
-                            description=f"Описание урока {lesson_num}"
+                    # --------- Автоматически создаем Attendance и HomeworkSubmission ----------
+                    for lesson in Lesson.objects.filter(month__group=group):
+                        Attendance.objects.get_or_create(
+                            lesson=lesson,
+                            student=user,
+                            defaults={'status':'0'}
+                        )
+                        HomeworkSubmission.objects.get_or_create(
+                            lesson=lesson,
+                            student=user,
+                            defaults={'status':'black'}
                         )
 
-                        # Для каждого студента создаём Attendance и HomeworkSubmission
-                        for student in group.students.all():
-                            Attendance.objects.create(
-                                lesson=lesson,
-                                student=student,
-                                status='0'
-                            )
-                            HomeworkSubmission.objects.create(
-                                lesson=lesson,
-                                student=student,
-                                status='black'
-                            )
-
+                except Student.DoesNotExist:
+                    continue
 
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
@@ -581,37 +543,47 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        
         # Фильтр по периоду
         start_date = self.request.query_params.get('start_date')
         end_date = self.request.query_params.get('end_date')
-        
         if start_date and end_date:
             queryset = queryset.filter(date__range=[start_date, end_date])
         elif start_date:
             queryset = queryset.filter(date__gte=start_date)
         elif end_date:
             queryset = queryset.filter(date__lte=end_date)
-            
         return queryset.order_by('-date')
 
+    @action(detail=True, methods=['get'])
+    def download_receipt(self, request, pk=None):
+        """Скачать PDF чек"""
+        payment = self.get_object()
+        
+        if not payment.receipt_pdf:
+            return Response(
+                {"detail": "Чек не сгенерирован"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        response = FileResponse(
+            payment.receipt_pdf.open(),
+            content_type='application/pdf'
+        )
+        response['Content-Disposition'] = f'attachment; filename="receipt_{payment.id}.pdf"'
+        return response
+    
+    
 
-class IncomeViewSet(viewsets.ModelViewSet):
-    queryset = Income.objects.all().select_related('direction', 'student', 'group')
-    serializer_class = IncomeSerializer
-    filterset_fields = ['direction', 'date', 'is_full_payment']
-    permission_classes = [IsAdminOrManager, IsAdmin]
 
-
-class IncomePDFView(APIView):
+class InvoicePDFView(APIView):
     permission_classes = [IsAdmin]
     def get(self, request, *args, **kwargs):
         # Получаем все доходы
-        incomes = Income.objects.all().select_related('direction', 'student', 'group')
+        incomes = Invoice.objects.all().select_related('direction', 'student', 'group')
 
         # Можно посчитать общую сумму
 
-        total_amount = Income.objects.aggregate(
+        total_amount = Invoice.objects.aggregate(
             total=Sum(
                 ExpressionWrapper(
                     F('cash_amount') + F('transfer_amount') + F('online_amount'),
@@ -1044,7 +1016,7 @@ class MonthlyIncomeAnalytics(APIView):
         return Response(result)
     
 
-from django.db.models import F, Sum, ExpressionWrapper, DecimalField
+
 
 class MonthlyIncomePDFView(APIView):
     permission_classes = [IsAdmin]
@@ -1889,3 +1861,464 @@ class StudentAttendanceUpdateView(generics.UpdateAPIView):
                 att.save()
 
         return Response({"detail": "Посещаемости обновлены"}, status=status.HTTP_200_OK)
+    
+
+
+class IncomeReportView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request, *args, **kwargs):
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+
+        payments = Payment.objects.select_related("invoice", "invoice__months__group")
+
+        if start_date and end_date:
+            payments = payments.filter(date__range=[start_date, end_date])
+        elif start_date:
+            payments = payments.filter(date__gte=start_date)
+        elif end_date:
+            payments = payments.filter(date__lte=end_date)
+
+        grouped = defaultdict(lambda: {"cash": 0, "transfer": 0, "online": 0, "dates": []})
+
+        for p in payments:
+            grouped[p.invoice.months.group.group_name]["cash"] += float(p.cash_amount or 0)
+            grouped[p.invoice.months.group.group_name]["transfer"] += float(p.transfer_amount or 0)
+            grouped[p.invoice.months.group.group_name]["online"] += float(p.online_amount or 0)
+            grouped[p.invoice.months.group.group_name]["dates"].append(p.date.date())
+
+
+        items = []
+        total_income = 0
+
+        for source, data in grouped.items():
+            total = data["cash"] + data["transfer"] + data["online"]
+            total_income += total
+
+            # Определяем "доминирующий" способ оплаты
+            payment_type = max(
+                [("Наличные", data["cash"]),
+                ("Перевод", data["transfer"]),
+                ("Онлайн-платёж", data["online"])],
+                key=lambda x: x[1]
+            )[0]
+
+            # Добавляем id первой оплаты в группе
+            payment_id = getattr(payments.filter(invoice__months__group__group_name=source).first(), 'id', None)
+
+            items.append({
+                "id": payment_id,
+                "source": source,
+                "amount": total,
+                "date": min(data["dates"]) if data["dates"] else None,
+                "payment_type": payment_type
+            })
+
+        return Response({
+            "period": {"start_date": start_date, "end_date": end_date},
+            "items": items,
+            "total_income": total_income
+        })
+
+
+    
+
+
+class IncomeReportPDFView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request, *args, **kwargs):
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+
+        payments = Payment.objects.select_related("invoice", "invoice__months__group")
+
+        if start_date and end_date:
+            payments = payments.filter(date__range=[start_date, end_date])
+        elif start_date:
+            payments = payments.filter(date__gte=start_date)
+        elif end_date:
+            payments = payments.filter(date__lte=end_date)
+
+        grouped = defaultdict(lambda: {"cash": 0, "transfer": 0, "online": 0, "dates": []})
+
+        for p in payments:
+            grouped[p.invoice.months.group.group_name]["cash"] += float(p.cash_amount or 0)
+            grouped[p.invoice.months.group.group_name]["transfer"] += float(p.transfer_amount or 0)
+            grouped[p.invoice.months.group.group_name]["online"] += float(p.online_amount or 0)
+            grouped[p.invoice.months.group.group_name]["dates"].append(p.date.date())
+
+        items = []
+        total_income = 0
+
+        for source, data in grouped.items():
+            total = data["cash"] + data["transfer"] + data["online"]
+            total_income += total
+
+            payment_type = max(
+                [("Наличные", data["cash"]),
+                 ("Перевод", data["transfer"]),
+                 ("Онлайн-платёж", data["online"])],
+                key=lambda x: x[1]
+            )[0]
+
+            items.append({
+                "source": source,
+                "amount": total,
+                "date": min(data["dates"]) if data["dates"] else None,
+                "payment_type": payment_type
+            })
+
+        # Контекст для PDF
+        context = {
+            "period": {"start_date": start_date, "end_date": end_date},
+            "items": items,
+            "total_income": total_income
+        }
+
+        pdf_bytes = render_to_pdf("reports/income_report.html", context)
+
+        return HttpResponse(pdf_bytes, content_type="application/pdf")
+    
+
+
+
+class IncomeReportExcelView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request, *args, **kwargs):
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        payments = Payment.objects.select_related("invoice", "invoice__months__group")
+
+        if start_date and end_date:
+            payments = payments.filter(date__range=[start_date, end_date])
+        elif start_date:
+            payments = payments.filter(date__gte=start_date)
+        elif end_date:
+            payments = payments.filter(date__lte=end_date)
+
+        grouped = defaultdict(lambda: {"cash": 0, "transfer": 0, "online": 0, "dates": []})
+
+        for p in payments:
+            grouped[p.invoice.months.group.group_name]["cash"] += float(p.cash_amount or 0)
+            grouped[p.invoice.months.group.group_name]["transfer"] += float(p.transfer_amount or 0)
+            grouped[p.invoice.months.group.group_name]["online"] += float(p.online_amount or 0)
+            grouped[p.invoice.months.group.group_name]["dates"].append(p.date.date())
+
+        rows = []
+        total_income = 0
+
+        for source, data in grouped.items():
+            total = data["cash"] + data["transfer"] + data["online"]
+            total_income += total
+
+            payment_type = max(
+                [("Наличные", data["cash"]),
+                 ("Перевод", data["transfer"]),
+                 ("Онлайн-платёж", data["online"])],
+                key=lambda x: x[1]
+            )[0]
+
+            rows.append([
+                source,
+                total,
+                min(data["dates"]).strftime("%Y-%m-%d") if data["dates"] else "",
+                payment_type
+            ])
+
+        title = f"Отчёт о доходах за период {start_date} - {end_date}"
+
+        return generate_excel(
+            filename="income_report.xlsx",
+            headers=["Источник", "Сумма", "Дата", "Тип оплаты"],
+            rows=rows,
+            title=title,
+            total=total_income
+        )
+    
+
+class TeacherWorkloadAnalyticsExcel(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        try:
+            period = request.query_params.get('period', 'week')
+            
+            if period == 'week':
+                start_date = timezone.now().date() - timedelta(days=7)
+                end_date = timezone.now().date()
+            else:  # month
+                start_date = timezone.now().date().replace(day=1)
+                end_date = timezone.now().date()
+
+            teachers = CustomUser.objects.filter(
+                role='Teacher',
+                is_active=True
+            )
+
+            rows = []
+            total_income = 0
+
+            for teacher in teachers:
+                lessons_count = Schedule.objects.filter(
+                    teacher=teacher,
+                    date__range=[start_date, end_date]
+                ).count()
+
+                teacher_groups = Group.objects.filter(teacher=teacher)
+
+                students_count = CustomUser.objects.filter(
+                    student_groups__in=teacher_groups
+                ).distinct().count()
+
+                group_income = Payment.objects.filter(
+                    invoice__months__group__in=teacher_groups,
+                    date__range=[start_date, end_date]
+                ).aggregate(
+                    total=Sum(
+                        F('cash_amount') + F('transfer_amount') + F('online_amount'),
+                        output_field=FloatField()
+                    )
+                )['total'] or 0
+
+                if lessons_count:
+                    rows.append([
+                        teacher.get_full_name(),
+                        lessons_count,
+                        students_count,
+                        float(group_income)
+                    ])
+                    total_income += group_income
+
+            rows.sort(key=lambda x: x[1], reverse=True)
+
+            title = f"Аналитика нагрузки преподавателей ({period}) — {start_date} по {end_date}"
+
+            return generate_excel(
+                filename="teacher_workload.xlsx",
+                headers=["Преподаватель", "Занятий", "Ученики", "Доход"],
+                rows=rows,
+                title=title,
+                total=total_income
+            )
+
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=500
+            )
+        
+
+
+class MonthlyIncomeAnalyticsExcel(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        # Получаем год
+        year = request.query_params.get('year', timezone.now().year)
+        try:
+            year = int(year)
+        except ValueError:
+            year = timezone.now().year
+
+        months_ru = [
+            'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+        ]
+
+        total_expr = ExpressionWrapper(
+            F('cash_amount') + F('transfer_amount') + F('online_amount'),
+            output_field=DecimalField()
+        )
+
+        payments = Payment.objects.filter(
+            date__year=year
+        ).annotate(
+            total_amount=total_expr
+        ).values('date__month').annotate(
+            monthly_total=Sum('total_amount')
+        ).order_by('date__month')
+
+        month_data = {p['date__month']: p['monthly_total'] for p in payments}
+
+        rows = []
+        total_income = 0
+
+        for month_num in range(1, 13):
+            income = float(month_data.get(month_num, 0))
+            rows.append([
+                months_ru[month_num - 1],
+                income
+            ])
+            total_income += income
+
+        title = f"Месячная аналитика доходов за {year} год"
+
+        return generate_excel(
+            filename=f"monthly_income_{year}.xlsx",
+            headers=["Месяц", "Доход"],
+            rows=rows,
+            title=title,
+            total=total_income
+        )
+    
+
+
+class FinancialReportExcelView(APIView):
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request, *args, **kwargs):
+
+        report = FinancialReport.objects.get()
+        serializer = FinancialReportSerializer(report)
+        data = serializer.data
+
+        rows = []
+        # Итоговые суммы
+        rows.append(["Итоговые показатели"])
+        rows.append(["Общий доход", data["total_income"]])
+        rows.append(["Общие расходы", data["total_expenses"]])
+        rows.append(["Чистая прибыль", data["net_profit"]])
+
+        title = f"Финансовый отчёт {data['report_type_display']} за период {data['start_date']} - {data['end_date']}"
+
+        return generate_excel(
+            filename=f"financial_report_{report.id}.xlsx",
+            headers=["Показатель", "Сумма"],
+            rows=rows,
+            title=title
+        )
+    
+
+class ExpenseExcelView(APIView):
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request, *args, **kwargs):
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        expenses = Expense.objects.select_related("teacher")
+
+        if start_date and end_date:
+            expenses = expenses.filter(date__range=[start_date, end_date])
+        elif start_date:
+            expenses = expenses.filter(date__gte=start_date)
+        elif end_date:
+            expenses = expenses.filter(date__lte=end_date)
+
+        rows = []
+        total_amount = 0
+
+        for exp in expenses:
+            rows.append([
+                exp.date.strftime("%Y-%m-%d"),
+                exp.get_category_display(),
+                exp.description,
+                exp.teacher.get_full_name() if exp.teacher else "",
+                float(exp.amount),
+                exp.comment
+            ])
+            total_amount += float(exp.amount)
+
+        title = f"Отчёт по расходам за период {start_date} - {end_date}"
+
+        return generate_excel(
+            filename="expenses_report.xlsx",
+            headers=["Дата", "Категория", "Статья", "Преподаватель", "Сумма", "Комментарий"],
+            rows=rows,
+            title=title,
+            total=total_amount
+        )
+    
+
+class TeacherPaymentExcelView(APIView):
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request, *args, **kwargs):
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        payments = TeacherPayment.objects.select_related("teacher")
+
+        if start_date and end_date:
+            payments = payments.filter(date__range=[start_date, end_date])
+        elif start_date:
+            payments = payments.filter(date__gte=start_date)
+        elif end_date:
+            payments = payments.filter(date__lte=end_date)
+
+        rows = []
+        total_amount = 0
+
+        for p in payments:
+            rows.append([
+                p.date.strftime("%Y-%m-%d"),
+                p.teacher.get_full_name() if p.teacher else "",
+                p.lessons_count,
+                float(p.rate),
+                float(p.payment),
+                float(p.bonus),
+                float(p.paid_amount),
+                float(p.balance),
+                "Да" if p.is_paid else "Нет"
+            ])
+            total_amount += float(p.payment + p.bonus)
+
+        title = f"Отчёт по выплатам преподавателям за период {start_date} - {end_date}"
+
+        return generate_excel(
+            filename="teacher_payments_report.xlsx",
+            headers=[
+                "Дата расчета", "Преподаватель", "Занятий", "Ставка", 
+                "Выплата", "Бонус", "Выплачено", "Остаток", "Оплачено"
+            ],
+            rows=rows,
+            title=title,
+            total=total_amount
+        )
+
+
+class PopularCoursesExcelView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        try:
+            # Получаем направления с подсчетом студентов и групп
+            directions = Direction.objects.annotate(
+                num_students=Count('groups__students', distinct=True),
+                num_groups=Count('groups', distinct=True)
+            ).filter(num_students__gt=0).order_by('-num_students')
+
+            rows = []
+            for rank, direction in enumerate(directions, start=1):
+                # Считаем доход для каждого направления
+                income = Payment.objects.filter(
+                    invoice__months__group__direction=direction
+                ).aggregate(
+                    total=Sum(
+                        F('cash_amount') + F('transfer_amount') + F('online_amount')
+                    )
+                )['total'] or 0
+
+                rows.append([
+                    rank,
+                    direction.name,
+                    direction.num_students,
+                    direction.num_groups,
+                    float(income)
+                ])
+
+            title = "Аналитика популярных курсов"
+
+            return generate_excel(
+                filename="popular_courses_report.xlsx",
+                headers=["Ранг", "Курс", "Количество студентов", "Количество групп", "Доход"],
+                rows=rows,
+                title=title
+            )
+
+        except Exception as e:
+            return HttpResponse(f"Ошибка при формировании отчёта: {str(e)}", status=500)
